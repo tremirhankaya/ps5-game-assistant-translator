@@ -8,7 +8,9 @@ Oyun oynarken diyalogları daha rahat takip edebilmek için Claude ile konuşara
 
 
 
-https://github.com/user-attachments/assets/0986b8df-61b4-43b3-8f5b-67ca84876136
+### Canlı Çeviri Demosu
+
+<video src="https://github.com/user-attachments/assets/0986b8df-61b4-43b3-8f5b-67ca84876136" controls="controls" title="Canlı Çeviri Demosu"></video>
 
 
 
