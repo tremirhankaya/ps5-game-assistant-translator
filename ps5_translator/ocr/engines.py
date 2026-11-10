@@ -85,7 +85,13 @@ class RapidOcrEngine(OcrEngine):
             raise OcrUnavailable(
                 "RapidOCR kurulu değil. Python 3.13 veya altında: pip install rapidocr onnxruntime"
             ) from exc
-        self._engine = RapidOCR()
+        # By default the detector enlarges the image until its short side is 736 px.
+        # A subtitle band is short and very wide, so it became huge and one read took
+        # seconds. 256 px keeps small or blurry text readable and is several times faster.
+        # The band is already upright, so the "is the text upside down" check is skipped.
+        self._engine = RapidOCR(
+            params={"Det.limit_type": "min", "Det.limit_side_len": 256, "Global.use_cls": False}
+        )
 
     def recognize(self, image: np.ndarray) -> list[OcrLine]:
         out = self._engine(image)
