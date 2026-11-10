@@ -35,6 +35,19 @@ def save_config(**changes) -> None:
     path.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+ENGINE_DEEPL = "deepl"
+ENGINE_OPUS = "opus"
+
+
+def get_engine() -> str:
+    """Which translation engine the user chose (DeepL unless they picked the local model)."""
+    return ENGINE_OPUS if load_config().get("engine") == ENGINE_OPUS else ENGINE_DEEPL
+
+
+def set_engine(engine: str) -> None:
+    save_config(engine=ENGINE_OPUS if engine == ENGINE_OPUS else ENGINE_DEEPL)
+
+
 def _keyring():
     try:
         import keyring
