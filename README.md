@@ -52,6 +52,14 @@ Her çeviride bir önceki replik DeepL'e bağlam olarak gönderilir; bu, "he/it"
 - **Tam ekran** (F11): çevirileri uygulamanın bulunduğu monitörde tam ekran gösterir. Geçmiş ve arama için H.
 - **Telefonda göster**: aynı Wi-Fi'daki bir telefon ya da tablet, ekrandaki QR kodu okutarak çevirileri tarayıcısında görür. Uygulama kurmak gerekmez. Sayfada yalnızca çevrilmiş altyazılar bulunur.
 
+## Güvenlik ve gizlilik
+
+- **DeepL anahtarı** yalnızca senin bilgisayarında, Windows Kimlik Bilgisi Yöneticisi'nde saklanır. Proje klasörüne ya da ayar dosyasına yazılmaz ve yalnızca DeepL'e gönderilir.
+- **Kamera görüntüleri** diske kaydedilmez ve hiçbir yere gönderilmez. İnternete çıkan tek şey, çevrilmek üzere DeepL'e gönderilen altyazı metinleridir. DeepL'in ücretsiz API'si gönderilen metinleri saklayabilir; ayrıntı için DeepL'in kendi koşullarına bak.
+- **Telefonda göster** özelliği varsayılan olarak kapalıdır. Açıldığında bilgisayar yerel ağda şifresiz (http) bir sayfa yayınlar. Sayfada yalnızca çevrilmiş altyazılar bulunur ve adresteki rastgele kod olmadan açılamaz. Yine de aynı ağdaki biri trafiği dinleyerek altyazıları görebilir; bu özelliği yalnızca güvendiğin ev ağında kullan, ortak ağlarda (yurt, kafe, iş yeri) açma.
+- **Ekran görüntüsü paylaşırken** "Telefonda göster" penceresindeki QR kodu ve adresi gösterme; gizli kodu ve yerel IP adresini içerir.
+- **Paket sürümleri** henüz sabitlenmedi: `setup.bat` her kurulumda paketlerin güncel sürümlerini indirir.
+
 ## Notlar
 
 - Bu proje Sony Interactive Entertainment ile bağlantılı değildir. "PlayStation" ve "PS5" Sony'nin ticari markalarıdır.
