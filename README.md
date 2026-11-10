@@ -36,6 +36,21 @@ pip install -r requirements-dev.txt
 python -m ps5_translator
 ```
 
+## Yerel çeviri modelleri (opsiyonel)
+
+İnternet ve hesap gerektirmeden çeviri için [Ollama](https://ollama.com) kur ve modelleri bir kez indir:
+
+```powershell
+ollama pull kaelri/hy-mt2:1.8b-q4_K_M   # Hy-MT2 1.8B: sadece çeviri, ~1-2 GB
+ollama pull gemma4:e2b                  # Gemma 4 E2B: genel model, ~7 GB indirme
+```
+
+Uygulamada motor listesinden seçmen yeterli. Motorları aynı cümlelerle karşılaştırmak için:
+
+```powershell
+python tools/compare_engines.py
+```
+
 ## Notlar
 
 - Varsayılan Google çeviri motoru resmi bir API değildir; çok sık istekte geçici olarak engellenebilir.
