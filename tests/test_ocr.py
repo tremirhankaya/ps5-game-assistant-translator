@@ -61,3 +61,16 @@ def test_result_score_only_when_every_line_has_one():
 
     assert OcrResult([frag("a", 0, 0, 1, 1, 0.8), frag("b", 0, 5, 1, 6, 0.6)]).score == pytest.approx(0.7)
     assert OcrResult([frag("a", 0, 0, 1, 1, None)]).score is None
+
+
+def test_text_at_the_border_is_flagged_as_possibly_cut_off():
+    class Edge(OcrEngine):
+        def __init__(self, x1):
+            self.x1 = x1
+
+        def recognize(self, image):
+            return [frag("I can see tha", 100, 50, self.x1, 150)]
+
+    image = np.zeros((200, 1000, 3), np.uint8)
+    assert Edge(998).read(image).touches_edge
+    assert not Edge(800).read(image).touches_edge

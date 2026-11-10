@@ -294,6 +294,12 @@ class MainWindow(QMainWindow):
                 "Aynı yazı art arda iki kez okundu, yani altyazı tamamlandı ve kamera titremesi değil. "
                 "Yarım cümleleri çevirmemek ve kotayı boşa harcamamak için bunu bekliyoruz.",
             )
+        if result.touches_edge:
+            self._write_log(
+                "Uyarı: yazı altyazı alanının kenarına değiyor, cümle kesilmiş olabilir.",
+                "Altyazı seçtiğin alandan daha geniş. Kamera penceresinde köşeleri ya da altyazı alanını "
+                "sağa ve sola doğru genişlet; yoksa cümlelerin başı ya da sonu okunmaz.",
+            )
         first_seen = self._stability.sent_first_seen
         job = _TranslateJob(self._pipeline, text)
         job.signals.done.connect(lambda r: self._show_result(r, first_seen))

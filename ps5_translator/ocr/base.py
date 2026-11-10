@@ -41,6 +41,7 @@ class OcrResult:
     ms: float = 0.0
     engine: str = ""
     captured_at: float = 0.0  # time.monotonic() of the camera frame that was read
+    touches_edge: bool = False  # text reaches the left/right border of the area: probably cut off
 
     @property
     def text(self) -> str:
@@ -75,7 +76,14 @@ class OcrEngine:
         if scale > 1:
             for line in lines:
                 line.box = line.box / scale
-        return OcrResult(lines=lines, ms=(time.perf_counter() - start) * 1000, engine=self.name)
+        width = image.shape[1]
+        margin = width * 0.015
+        touches = any(
+            line.box[:, 0].min() <= margin or line.box[:, 0].max() >= width - margin for line in lines
+        )
+        return OcrResult(
+            lines=lines, ms=(time.perf_counter() - start) * 1000, engine=self.name, touches_edge=touches
+        )
 
 
 def upscale_factor(image: np.ndarray) -> float:
