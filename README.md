@@ -47,6 +47,11 @@ Anahtar Windows Kimlik Bilgisi Yöneticisi'nde saklanır, proje klasörüne yaz�
 
 Her çeviride bir önceki replik DeepL'e bağlam olarak gönderilir; bu, "he/it" gibi belirsiz kelimelerin doğru çevrilmesine yardım eder ve kotadan düşmez.
 
+## Çevirileri gösterme
+
+- **Tam ekran** (F11): çevirileri uygulamanın bulunduğu monitörde tam ekran gösterir. Geçmiş ve arama için H.
+- **Telefonda göster**: aynı Wi-Fi'daki bir telefon ya da tablet, ekrandaki QR kodu okutarak çevirileri tarayıcısında görür. Uygulama kurmak gerekmez. Sayfada yalnızca çevrilmiş altyazılar bulunur.
+
 ## Notlar
 
 - Bu proje Sony Interactive Entertainment ile bağlantılı değildir. "PlayStation" ve "PS5" Sony'nin ticari markalarıdır.

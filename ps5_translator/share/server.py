@@ -66,10 +66,10 @@ class ShareServer:
         self._httpd.shutdown()
         self._httpd.server_close()
 
-    def add_line(self, translated: str, source: str) -> None:
+    def add_line(self, translated: str, source: str, time: str | None = None) -> None:
         with self._lock:
             self._lines.append(
-                {"time": datetime.now().strftime("%H:%M:%S"), "translated": translated, "source": source}
+                {"time": time or datetime.now().strftime("%H:%M:%S"), "translated": translated, "source": source}
             )
 
     def lines_after(self, index: int) -> dict:

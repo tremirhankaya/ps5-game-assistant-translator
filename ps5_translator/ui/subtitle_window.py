@@ -121,9 +121,10 @@ class SubtitleWindow(QWidget):
 
     # -- content
 
-    def show_line(self, translated: str, source: str) -> None:
+    def show_line(self, translated: str, source: str) -> bool:
+        """Show a new line. Returns False if it repeats the line already on screen."""
         if self.lines and self.lines[-1].translated == translated and self.lines[-1].source == source:
-            return
+            return False
         line = Line(datetime.now().strftime("%H:%M:%S"), source, translated)
         self.lines.append(line)
         recent = self.lines[-(RECENT_LINES + 1) : -1]
@@ -136,6 +137,7 @@ class SubtitleWindow(QWidget):
             if at_bottom:
                 self.history_list.scrollToBottom()
         self._update_texts()
+        return True
 
     def _add_history_item(self, line: Line) -> None:
         item = QListWidgetItem(f"{line.time}   {line.translated}\n                 {line.source}")

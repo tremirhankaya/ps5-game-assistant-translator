@@ -4,6 +4,7 @@ deepl>=1.33
 keyring>=25
 opencv-python-headless>=4.9
 numpy>=1.26
+segno>=1.6
 # OCR: RapidOCR (onnxruntime has no builds for Python newer than 3.13 yet; setup.bat installs 3.13)
 rapidocr>=3.4
 onnxruntime>=1.20

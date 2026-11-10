@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
 from .. import settings
 from ..explain import explain
 from ..ocr.stability import StabilityFilter
+from ..share import ShareServer, new_code
+from .share_dialog import ShareDialog
 from .subtitle_window import SubtitleWindow
 from ..translation import DeepLEngine, Result, TranslationPipeline
 
@@ -77,6 +79,7 @@ class MainWindow(QMainWindow):
         self._camera_window = None
         self._stability = StabilityFilter()
         self._subtitle_window = SubtitleWindow()
+        self._share: ShareServer | None = None
 
         self._build_ui()
         self._load_engine()
@@ -105,6 +108,11 @@ class MainWindow(QMainWindow):
         fullscreen_button.setShortcut("F11")
         fullscreen_button.clicked.connect(self._open_fullscreen)
         top.addWidget(fullscreen_button)
+        self.phone_button = QPushButton("Telefonda göster")
+        self.phone_button.setCheckable(True)
+        self.phone_button.setToolTip("Çevirileri aynı Wi-Fi'daki bir telefonun tarayıcısında gösterir.")
+        self.phone_button.toggled.connect(self._phone_toggled)
+        top.addWidget(self.phone_button)
         top.addStretch()
         self.usage_label = QLabel("")
         self.usage_label.setStyleSheet("color:#888;")
@@ -189,6 +197,35 @@ class MainWindow(QMainWindow):
             used, limit = value
             self.usage_label.setText(f"DeepL kotası: {used:,} / {limit:,} karakter".replace(",", "."))
 
+    # -- phone
+
+    def _phone_toggled(self, on: bool) -> None:
+        if not on:
+            if self._share is not None:
+                self._share.stop()
+                self._share = None
+                self._write_log("Telefon paylaşımı kapatıldı.")
+            return
+        code = settings.load_config().get("share_code") or new_code()
+        settings.save_config(share_code=code)  # same address next time, so a bookmark keeps working
+        try:
+            self._share = ShareServer(code)
+            self._share.start()
+        except Exception as exc:
+            self._share = None
+            self._write_log(f"Telefon paylaşımı başlatılamadı: {exc}")
+            self.phone_button.setChecked(False)
+            return
+        for line in self._subtitle_window.lines:  # the phone also gets what was translated so far
+            self._share.add_line(line.translated, line.source, line.time)
+        self._write_log(
+            f"Telefon paylaşımı açık: {self._share.url}",
+            "Bilgisayar ev ağında küçük bir web sayfası yayınlıyor; telefon aynı Wi-Fi'dan tarayıcıyla açıyor. "
+            "Sayfada yalnızca çevrilmiş altyazılar var. Adresteki rastgele kod, ağdaki başka cihazların "
+            "sayfayı tahminle açmasını engeller. Windows Güvenlik Duvarı sorarsa 'Özel ağlar' için izin ver.",
+        )
+        ShareDialog(self._share.url, self).exec()
+
     def _open_fullscreen(self) -> None:
         # Opens on the monitor this window is on: drag the app to the second monitor first.
         self._subtitle_window.show_on(self.screen())
@@ -246,6 +283,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self._subtitle_window.close()
+        if self._share is not None:
+            self._share.stop()
         if self._camera_window is not None:
             self._camera_window.close()
             self._camera_window.shutdown()
@@ -304,7 +343,9 @@ class MainWindow(QMainWindow):
             if self._translated_since_usage >= 20:
                 self._refresh_usage()
         self.subtitle.setText(result.translated)
-        self._subtitle_window.show_line(result.translated, result.source)
+        added = self._subtitle_window.show_line(result.translated, result.source)
+        if added and self._share is not None:
+            self._share.add_line(result.translated, result.source)
         source_note = "kayıttan" if result.from_cache else f"{result.ms:.0f} ms"
         self.source.setText(f"{result.source}   ·   {source_note}")
 
