@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from .. import settings
 from ..ocr import OcrResult, available_ocr_engines
 from ..vision import Calibration
+from ..vision.autotune import AutoTuneReport, auto_calibrate
 from ..vision.calibration import FULL, PARTIAL
 from .jobs import JobRunner
 
@@ -175,6 +176,8 @@ class CameraWindow(QWidget):
         self._ocr_engines = available_ocr_engines()
         self.ocr_engine = None
         self._ocr_busy = False
+        self._auto_running = False
+        self._calibration_version = 0  # increases on every change; old OCR results are ignored
 
         config = settings.load_config()
         self.calibration = Calibration.from_dict(config.get("calibration"))
@@ -202,6 +205,10 @@ class CameraWindow(QWidget):
         reset_band = QPushButton("Altyazı alanını sıfırla")
         reset_band.clicked.connect(self._reset_band)
         top.addWidget(reset_band)
+        self.auto_button = QPushButton("Otomatik ayarla")
+        self.auto_button.setToolTip("Ekranda bir altyazı görünürken bas.")
+        self.auto_button.clicked.connect(self._auto_calibrate)
+        top.addWidget(self.auto_button)
         top.addStretch()
         layout.addLayout(top)
 
@@ -449,17 +456,20 @@ class CameraWindow(QWidget):
         self._log(f"OCR motoru hazır: {value.name}.", why)
 
     def _read_subtitles(self) -> None:
-        if self._ocr_busy or self.ocr_engine is None or self.latest_frame is None:
+        if self._auto_running or self._ocr_busy or self.ocr_engine is None or self.latest_frame is None:
             return
         crop = self.calibration.subtitle_crop(self.latest_frame)
         if crop is None:
             return
         self._ocr_busy = True
         engine = self.ocr_engine
-        self._ocr_runner.run(lambda: engine.read(crop), self._ocr_done)
+        version = self._calibration_version
+        self._ocr_runner.run(lambda: engine.read(crop), lambda outcome: self._ocr_done(outcome, version))
 
-    def _ocr_done(self, outcome) -> None:
+    def _ocr_done(self, outcome, version: int) -> None:
         self._ocr_busy = False
+        if self._auto_running or version != self._calibration_version:
+            return  # read with settings that have changed since; a fresh read follows
         ok, value = outcome
         if not ok:
             self.ocr_label.setText(f"OCR hatası: {value}")
@@ -472,12 +482,72 @@ class CameraWindow(QWidget):
             self.ocr_label.setText(f"OCR yazı görmedi ({result.ms:.0f} ms)")
         self.ocr_read.emit(result)
 
+    # -- automatic calibration
+
+    def _auto_calibrate(self) -> None:
+        if self.ocr_engine is None:
+            self._log("Otomatik ayar için önce OCR motorunun hazır olması gerekiyor.")
+            return
+        if self.latest_frame is None or not self.calibration.has_screen:
+            self._log("Otomatik ayar için önce kamerada görüntü olmalı ve 4 köşe seçilmiş olmalı.")
+            return
+        frame = self.latest_frame.copy()  # use one still frame so every try sees the same image
+        calib = Calibration.from_dict(self.calibration.to_dict())
+        engine = self.ocr_engine
+        self.auto_button.setEnabled(False)
+        self._auto_running = True
+        self._ocr_timer.stop()
+        self.ocr_label.setText("Otomatik ayar çalışıyor... (10-60 sn sürebilir)")
+        self._log(
+            "Otomatik ayar başladı.",
+            "Ekrandaki altyazıyı farklı eğim ve yükseklik ayarlarıyla tekrar tekrar okuyoruz. "
+            "OCR'ın en emin ve en anlamlı okuduğu ayarı seçeceğiz.",
+        )
+        self._ocr_runner.run(lambda: auto_calibrate(frame, calib, engine), self._auto_done)
+
+    def _auto_done(self, outcome) -> None:
+        self._auto_running = False
+        self.auto_button.setEnabled(True)
+        self._ocr_timer.start(OCR_INTERVAL_MS)
+        ok, value = outcome
+        if not ok:
+            self._log(f"Otomatik ayar başarısız: {value}")
+            return
+        report: AutoTuneReport = value
+        if not report.found_text:
+            self._log(
+                "Otomatik ayar hiçbir denemede yazı bulamadı.",
+                "Düğmeye ekranda bir altyazı görünürken bas. Köşelerin ekranın altyazı olan kısmını kapsadığından emin ol.",
+            )
+            return
+        best = report.best
+        tried = sorted(report.trials, key=lambda t: t.quality, reverse=True)[:5]
+        table = "; ".join(f"%{t.height_scale * 100:.0f}/{t.rotation:.1f}°: {t.quality:.2f}" for t in tried)
+        calib = self.calibration
+        calib.height_scale = best.height_scale
+        calib.rotation = best.rotation
+        if report.band:
+            calib.band = report.band
+        self.scale_slider.blockSignals(True)
+        self.scale_slider.setValue(int(round(best.height_scale * 100)))
+        self.scale_slider.blockSignals(False)
+        self._update_scale_label()
+        self._save()
+        self._update_hint()
+        self._log(
+            f"Otomatik ayar bitti ({len(report.trials)} deneme). Seçilen: yükseklik %{best.height_scale * 100:.0f}, "
+            f"eğim düzeltme {best.rotation:.1f}°. Okunan: \"{best.text}\" (kalite {best.quality:.2f})",
+            f"En iyi denemeler (yükseklik/eğim: kalite): {table}. Kalite = OCR'ın güveni × gerçek kelimeye "
+            "benzeyen kelimelerin oranı. Sonuç kötü görünürse kaydırıcıyla elle düzeltebilirsin.",
+        )
+
     # -- partial mode
 
     def _mode_changed(self, index: int) -> None:
         self.calibration.mode = self.mode_box.itemData(index)
         self.calibration.screen.clear()  # corners mean something different in each mode
         self.calibration.band = None
+        self.calibration.rotation = 0.0
         self._save()
         if self.calibration.mode == PARTIAL:
             self._log(
@@ -511,11 +581,13 @@ class CameraWindow(QWidget):
     # -- helpers
 
     def _save(self) -> None:
+        self._calibration_version += 1
         settings.save_config(calibration=self.calibration.to_dict())
         self.calibration_changed.emit(self.calibration)
 
     def _reset_corners(self) -> None:
         self.calibration.screen.clear()
+        self.calibration.rotation = 0.0
         self._save()
         self._update_hint()
 

@@ -19,9 +19,13 @@ class _Job(QRunnable):
 
     def run(self) -> None:
         try:
-            self.signals.done.emit((True, self.fn()))
+            outcome = (True, self.fn())
         except Exception as exc:
-            self.signals.done.emit((False, str(exc) or exc.__class__.__name__))
+            outcome = (False, str(exc) or exc.__class__.__name__)
+        try:
+            self.signals.done.emit(outcome)
+        except RuntimeError:
+            pass  # the window was closed while this job was running; nobody is waiting for the result
 
 
 class JobRunner(QObject):
