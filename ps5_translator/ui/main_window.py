@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from .. import settings
 from ..explain import explain
 from ..ocr.stability import StabilityFilter
+from .subtitle_window import SubtitleWindow
 from ..translation import DeepLEngine, Result, TranslationPipeline
 
 
@@ -75,6 +76,7 @@ class MainWindow(QMainWindow):
         self._translated_since_usage = 0
         self._camera_window = None
         self._stability = StabilityFilter()
+        self._subtitle_window = SubtitleWindow()
 
         self._build_ui()
         self._load_engine()
@@ -98,6 +100,11 @@ class MainWindow(QMainWindow):
         self.live_toggle.setToolTip("Kameranın okuduğu altyazıları otomatik çevirir.")
         self.live_toggle.toggled.connect(self._live_toggled)
         top.addWidget(self.live_toggle)
+        fullscreen_button = QPushButton("Tam ekran")
+        fullscreen_button.setToolTip("Çevirileri bu monitörde tam ekran gösterir (F11). Çıkmak için Esc.")
+        fullscreen_button.setShortcut("F11")
+        fullscreen_button.clicked.connect(self._open_fullscreen)
+        top.addWidget(fullscreen_button)
         top.addStretch()
         self.usage_label = QLabel("")
         self.usage_label.setStyleSheet("color:#888;")
@@ -182,6 +189,10 @@ class MainWindow(QMainWindow):
             used, limit = value
             self.usage_label.setText(f"DeepL kotası: {used:,} / {limit:,} karakter".replace(",", "."))
 
+    def _open_fullscreen(self) -> None:
+        # Opens on the monitor this window is on: drag the app to the second monitor first.
+        self._subtitle_window.show_on(self.screen())
+
     def _ensure_camera(self):
         from .camera_window import CameraWindow
 
@@ -234,6 +245,7 @@ class MainWindow(QMainWindow):
         self._start(job)
 
     def closeEvent(self, event) -> None:
+        self._subtitle_window.close()
         if self._camera_window is not None:
             self._camera_window.close()
             self._camera_window.shutdown()
@@ -292,6 +304,7 @@ class MainWindow(QMainWindow):
             if self._translated_since_usage >= 20:
                 self._refresh_usage()
         self.subtitle.setText(result.translated)
+        self._subtitle_window.show_line(result.translated, result.source)
         source_note = "kayıttan" if result.from_cache else f"{result.ms:.0f} ms"
         self.source.setText(f"{result.source}   ·   {source_note}")
 
