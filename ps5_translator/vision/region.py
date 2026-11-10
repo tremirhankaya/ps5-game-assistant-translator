@@ -27,6 +27,7 @@ class Region:
     def add_point(self, x: float, y: float) -> None:
         if self.is_complete:
             self.points.clear()
+        x, y = float(x), float(y)  # plain floats so they can be saved as JSON
         self.points.append((min(max(x, 0.0), 1.0), min(max(y, 0.0), 1.0)))
 
     def clear(self) -> None:

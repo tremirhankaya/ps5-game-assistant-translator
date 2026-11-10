@@ -43,6 +43,14 @@ def test_warp_flattens_a_tilted_area():
     assert flat.mean() < 10  # nearly all black: we cut exactly the shape
 
 
+def test_numpy_points_can_be_saved(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    region = Region()
+    region.add_point(np.float32(0.5), np.float64(0.25))
+    settings.save_config(region=region.to_dict())
+    assert settings.load_config()["region"]["points"] == [[0.5, 0.25]]
+
+
 def test_region_round_trip(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
     region = Region()

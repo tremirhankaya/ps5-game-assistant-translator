@@ -74,6 +74,7 @@ class MainWindow(QMainWindow):
         self._engines = available_engines()
         self._pipeline: TranslationPipeline | None = None
         self._translated_since_usage = 0
+        self._camera_window = None
 
         self._build_ui()
         self._select_engine(0)
@@ -93,6 +94,9 @@ class MainWindow(QMainWindow):
             self.engine_box.addItem(engine.name)
         self.engine_box.currentIndexChanged.connect(self._select_engine)
         top.addWidget(self.engine_box)
+        camera_button = QPushButton("Kamera")
+        camera_button.clicked.connect(self._open_camera)
+        top.addWidget(camera_button)
         settings_button = QPushButton("Ayarlar")
         settings_button.clicked.connect(self._open_settings)
         top.addWidget(settings_button)
@@ -209,6 +213,19 @@ class MainWindow(QMainWindow):
         if ok and value:
             used, limit = value
             self.usage_label.setText(f"DeepL kotası: {used:,} / {limit:,} karakter".replace(",", "."))
+
+    def _open_camera(self) -> None:
+        from .camera_window import CameraWindow
+
+        if self._camera_window is None:
+            self._camera_window = CameraWindow(log=self._write_log)
+        self._camera_window.show()
+        self._camera_window.raise_()
+
+    def closeEvent(self, event) -> None:
+        if self._camera_window is not None:
+            self._camera_window.close()
+        super().closeEvent(event)
 
     def _open_settings(self) -> None:
         current = settings.get_deepl_key() or ""
