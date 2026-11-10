@@ -1,15 +1,15 @@
-"""The subtitle area on the monitor, as seen by the webcam.
+"""Four corners of an area as seen by the webcam.
 
-The webcam looks at the monitor from an angle, so the subtitle area is not a
-rectangle in the camera image but a tilted four-sided shape. The user clicks
-its four corners; we then "flatten" it back into a rectangle (perspective
-correction) so OCR reads straight text.
+The webcam looks at the monitor from an angle, so a rectangle on the screen
+appears as a tilted four-sided shape in the camera image. With its four
+corners we can "flatten" it back into a rectangle (perspective correction).
 
 Points are stored as fractions of the image size (0..1), so they still fit
 if the camera resolution changes.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 import cv2
@@ -27,8 +27,19 @@ class Region:
     def add_point(self, x: float, y: float) -> None:
         if self.is_complete:
             self.points.clear()
-        x, y = float(x), float(y)  # plain floats so they can be saved as JSON
-        self.points.append((min(max(x, 0.0), 1.0), min(max(y, 0.0), 1.0)))
+        self.points.append(_clamp_point(x, y))
+
+    def move_point(self, index: int, x: float, y: float) -> None:
+        self.points[index] = _clamp_point(x, y)
+
+    def nearest_point(self, x: float, y: float, max_distance: float) -> int | None:
+        """Index of the corner closest to (x, y), if it is close enough."""
+        best, best_d = None, max_distance
+        for i, (px, py) in enumerate(self.points):
+            d = math.hypot(px - x, py - y)
+            if d <= best_d:
+                best, best_d = i, d
+        return best
 
     def clear(self) -> None:
         self.points.clear()
@@ -46,19 +57,25 @@ class Region:
     def pixel_points(self, width: int, height: int) -> np.ndarray:
         return np.array([(x * width, y * height) for x, y in self.ordered()], dtype=np.float32)
 
-    def warp(self, frame: np.ndarray) -> np.ndarray:
-        """Return the subtitle area as a flat, upright rectangle."""
+    def natural_size(self, width: int, height: int) -> tuple[int, int]:
+        """Size of the flattened area if we keep roughly the pixels the camera sees."""
+        tl, tr, br, bl = self.pixel_points(width, height)
+        out_w = int(max(np.linalg.norm(tr - tl), np.linalg.norm(br - bl)))
+        out_h = int(max(np.linalg.norm(bl - tl), np.linalg.norm(br - tr)))
+        return max(out_w, 1), max(out_h, 1)
+
+    def matrix(self, width: int, height: int, out_size: tuple[int, int]) -> np.ndarray:
+        out_w, out_h = out_size
+        dst = np.array([(0, 0), (out_w - 1, 0), (out_w - 1, out_h - 1), (0, out_h - 1)], dtype=np.float32)
+        return cv2.getPerspectiveTransform(self.pixel_points(width, height), dst)
+
+    def warp(self, frame: np.ndarray, out_size: tuple[int, int] | None = None) -> np.ndarray:
+        """Return the area as a flat, upright rectangle."""
         if not self.is_complete:
             raise ValueError("Region needs 4 points")
         h, w = frame.shape[:2]
-        src = self.pixel_points(w, h)
-        tl, tr, br, bl = src
-        out_w = int(max(np.linalg.norm(tr - tl), np.linalg.norm(br - bl)))
-        out_h = int(max(np.linalg.norm(bl - tl), np.linalg.norm(br - tr)))
-        out_w, out_h = max(out_w, 1), max(out_h, 1)
-        dst = np.array([(0, 0), (out_w - 1, 0), (out_w - 1, out_h - 1), (0, out_h - 1)], dtype=np.float32)
-        matrix = cv2.getPerspectiveTransform(src, dst)
-        return cv2.warpPerspective(frame, matrix, (out_w, out_h))
+        size = out_size or self.natural_size(w, h)
+        return cv2.warpPerspective(frame, self.matrix(w, h, size), size)
 
     # -- saving
 
@@ -72,3 +89,8 @@ class Region:
         for x, y in points[:4]:
             region.add_point(float(x), float(y))
         return region
+
+
+def _clamp_point(x: float, y: float) -> tuple[float, float]:
+    x, y = float(x), float(y)  # plain floats so they can be saved as JSON
+    return min(max(x, 0.0), 1.0), min(max(y, 0.0), 1.0)
