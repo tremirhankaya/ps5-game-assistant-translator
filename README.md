@@ -11,7 +11,7 @@ PS5 oyunlarındaki İngilizce altyazıları webcam ile okuyup anlık olarak Tür
 ## Nasıl çalışır
 
 ```
-Webcam → altyazı alanını düzleştir → OCR (yazıyı oku) → DeepL (çevir) → ikinci monitör / telefon
+Webcam → altyazı alanını düzleştir → OCR (yazıyı oku) → çeviri (DeepL ya da yerel model) → ikinci monitör / telefon
 ```
 
 - PS5 kablolaması değişmez: konsol doğrudan monitöre bağlı kalır, oyun görüntüsüne ve gecikmesine dokunulmaz.
@@ -21,7 +21,7 @@ Webcam → altyazı alanını düzleştir → OCR (yazıyı oku) → DeepL (çev
 
 - Windows 10 ya da 11
 - Bir webcam (1080p önerilir)
-- İnternet bağlantısı ve ücretsiz bir DeepL API anahtarı
+- Çeviri için ikisinden biri: ücretsiz bir DeepL API anahtarı (önerilen) ya da yerel model (anahtar gerekmez, yaklaşık 470 MB indirme)
 - Çeviriyi göstermek için ikinci bir monitör ya da aynı Wi-Fi'da bir telefon / tablet
 
 ## Kurulum
@@ -38,13 +38,25 @@ Uygulamayı açmak için: `.\run.bat`
 
 ## Kullanım
 
-### 1. DeepL anahtarını gir (bir kez)
+### 1. Çeviri yöntemini seç (bir kez)
 
-1. [deepl.com/pro-api](https://www.deepl.com/pro-api) adresinden ücretsiz **DeepL API Free** hesabı aç (ayda 500.000 karakter).
+**Ayarlar** düğmesine bas ve ikisinden birini seç:
+
+| | DeepL (önerilen) | Yerel model (OPUS-MT) |
+|---|---|---|
+| Çeviri kalitesi | Daha iyi; önceki repliği bağlam olarak kullanır | Daha düşük; deyim ve argoda daha çok hata yapar |
+| Gereken | Ücretsiz API anahtarı, internet | Bir kez yaklaşık 470 MB indirme |
+| Sınır | Ayda 500.000 karakter | Yok |
+| Gizlilik | Altyazı metinleri DeepL'e gönderilir | Hiçbir metin bilgisayardan çıkmaz |
+
+**DeepL için:**
+1. [deepl.com/pro-api](https://www.deepl.com/pro-api) adresinden ücretsiz **DeepL API Free** hesabı aç.
 2. Hesap sayfasından API anahtarını kopyala (sonu `:fx` ile biter).
-3. Uygulamada **Ayarlar** düğmesine bas ve anahtarı yapıştır.
+3. Ayarlar'da DeepL'i seç, anahtarı yapıştır ve kaydet. Sağ üstte "DeepL kotası: ..." yazısını görüyorsan anahtar çalışıyor.
 
-Sağ üstte "DeepL kotası: ..." yazısını görüyorsan anahtar çalışıyor. Alttaki kutuya İngilizce bir cümle yazıp Enter'a basarak çeviriyi deneyebilirsin.
+**Yerel model için:** Ayarlar'da "Yerel model"i seç ve kaydet. Model ilk seferde indirilir; bu birkaç dakika sürebilir.
+
+Alttaki kutuya İngilizce bir cümle yazıp Enter'a basarak çeviriyi deneyebilirsin.
 
 ### 2. Kamerayı yerleştir
 
@@ -83,7 +95,7 @@ Ana pencerede **Canlı çeviri** kutusunu işaretle. Kamera penceresini kapatabi
 |---|---|
 | Kamera görüntüsü gelmiyor | Üstten başka bir kamera numarası seç. Kamerayı kullanan başka programları kapat. |
 | "OCR yazı görmedi" ya da yanlış okuyor | Altyazı ekrandayken **Otomatik ayarla**'ya bas. Olmazsa kamerayı yaklaştır, açıyı azalt, köşeleri yeniden seç. |
-| Çeviri gelmiyor | **Ayarlar**'dan DeepL anahtarını kontrol et. Açıklama panelindeki hata mesajına bak. |
+| Çeviri gelmiyor | **Ayarlar**'dan DeepL anahtarını kontrol et ya da yerel modele geç. Açıklama panelindeki hata mesajına bak. |
 | Telefonda sayfa açılmıyor | İkisi aynı Wi-Fi'da mı? Windows Güvenlik Duvarı'nda uygulamaya "Özel ağlar" için izin ver. |
 | Telefonun ekranı kapanıyor | Telefonun ayarlarından ekran zaman aşımını uzat. |
 | Telefonda "Tam ekran" düğmesi yok | iPhone'lar buna izin vermiyor. Safari'de Paylaş > "Ana Ekrana Ekle" ile aynı sonucu alırsın. |
@@ -91,7 +103,8 @@ Ana pencerede **Canlı çeviri** kutusunu işaretle. Kamera penceresini kapatabi
 ## Güvenlik ve gizlilik
 
 - **DeepL anahtarı** yalnızca senin bilgisayarında, Windows Kimlik Bilgisi Yöneticisi'nde saklanır. Proje klasörüne ya da ayar dosyasına yazılmaz ve yalnızca DeepL'e gönderilir. Anahtarını kimseyle paylaşma.
-- **Kamera görüntüleri** diske kaydedilmez ve hiçbir yere gönderilmez. İnternete çıkan tek şey, çevrilmek üzere DeepL'e gönderilen altyazı metinleridir. DeepL'in ücretsiz API'si gönderilen metinleri saklayabilir; ayrıntı için DeepL'in kendi koşullarına bak.
+- **Kamera görüntüleri** diske kaydedilmez ve hiçbir yere gönderilmez. DeepL seçiliyse internete çıkan tek şey, çevrilmek üzere DeepL'e gönderilen altyazı metinleridir. DeepL'in ücretsiz API'si gönderilen metinleri saklayabilir; ayrıntı için DeepL'in kendi koşullarına bak. Yerel model seçiliyse hiçbir metin bilgisayardan çıkmaz.
+- **Yerel model** ilk kullanımda Hugging Face'ten indirilir (`ooeoeo/opus-mt-tc-big-en-tr-ct2-float16`). İndirilen sürüm kodda sabitlenmiştir; depo sonradan değişse bile aynı dosyalar indirilir.
 - **Telefonda göster** özelliği varsayılan olarak kapalıdır. Açıldığında bilgisayar yerel ağda şifresiz (http) bir sayfa yayınlar. Sayfada yalnızca çevrilmiş altyazılar bulunur ve adresteki rastgele kod olmadan açılamaz. Yine de aynı ağdaki biri trafiği dinleyerek altyazıları görebilir. **Bu özelliği yalnızca güvendiğin ev ağında kullan; ortak ağlarda (yurt, kafe, iş yeri) açma.**
 - **Ekran görüntüsü ya da video paylaşırken** "Telefonda göster" penceresindeki QR kodu ve adresi gösterme; gizli kodu ve yerel IP adresini içerir.
 - **Paket sürümleri** henüz sabitlenmedi: `setup.bat` her kurulumda paketlerin güncel sürümlerini indirir.
@@ -103,6 +116,8 @@ Ana pencerede **Canlı çeviri** kutusunu işaretle. Kamera penceresini kapatabi
 - Çeviri, altyazı ekrana geldikten kısa bir süre sonra görünür (okuma + çeviri süresi).
 - Çeviri geçmişi uygulama kapanınca silinir.
 
-## Lisans
+## Lisans ve teşekkür
 
-MIT
+Uygulamanın kodu MIT lisanslıdır.
+
+Yerel çeviri modeli uygulamayla birlikte dağıtılmaz. Kaynağı, Helsinki Üniversitesi Dil Teknolojileri Araştırma Grubu'nun [OPUS-MT](https://github.com/Helsinki-NLP/Opus-MT) projesindeki `opus-mt-tc-big-en-tr` modelidir (CC BY 4.0); CTranslate2 biçimine dönüştürülmüş hâli kullanılır. Yazı okuma için [RapidOCR](https://github.com/RapidAI/RapidOCR) kullanılır.

@@ -13,7 +13,6 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -27,9 +26,10 @@ from .. import settings
 from ..explain import explain
 from ..ocr.stability import StabilityFilter
 from ..share import ShareServer, new_code
+from .settings_dialog import SettingsDialog
 from .share_dialog import ShareDialog
 from .subtitle_window import SubtitleWindow
-from ..translation import DeepLEngine, Result, TranslationPipeline
+from ..translation import Result, TranslationPipeline, create_engine, opus_engine
 
 
 class _Signals(QObject):
@@ -65,7 +65,7 @@ class _CallJob(QRunnable):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, engine_factory=DeepLEngine) -> None:
+    def __init__(self, engine_factory=create_engine) -> None:
         super().__init__()
         self._engine_factory = engine_factory
         self.setWindowTitle("PS5 Game Assistant Translator")
@@ -161,6 +161,15 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------- actions
 
     def _load_engine(self) -> None:
+        if (
+            self._engine_factory is create_engine
+            and settings.get_engine() == settings.ENGINE_OPUS
+            and not opus_engine.is_downloaded()
+        ):
+            self._write_log(
+                f"Yerel çeviri modeli indiriliyor (yaklaşık {opus_engine.MODEL_SIZE_MB} MB). Bu birkaç dakika sürebilir...",
+                "Model yalnızca bir kez indirilir ve bu bilgisayarda saklanır; sonraki açılışlarda hemen yüklenir.",
+            )
         job = _CallJob(self._engine_factory)
         job.signals.done.connect(self._engine_ready)
         self._start(job)
@@ -300,28 +309,23 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def _open_settings(self) -> None:
-        current = settings.get_deepl_key() or ""
-        key, ok = QInputDialog.getText(
-            self,
-            "DeepL anahtarı",
-            "deepl.com/pro-api adresinden aldığın ücretsiz API anahtarını yapıştır.\n"
-            "Boş bırakırsan kayıtlı anahtar silinir.",
-            QLineEdit.Password,
-            current,
-        )
-        if not ok:
+        dialog = SettingsDialog(self)
+        if not dialog.exec():
             return
         try:
-            settings.set_deepl_key(key)
+            settings.set_deepl_key(dialog.deepl_key)
         except Exception as exc:
             self._write_log(f"Anahtar kaydedilemedi: {exc}")
             return
-        self._write_log(
-            "DeepL anahtarı Windows Kimlik Bilgisi Yöneticisi'ne kaydedildi." if key.strip()
-            else "DeepL anahtarı silindi.",
-            "Anahtar proje klasöründe düz bir dosyada dursaydı yanlışlıkla GitHub'a gönderilebilirdi. "
-            "Windows'un kendi şifre kasasında saklamak daha güvenli.",
-        )
+        settings.set_engine(dialog.engine)
+        if dialog.engine == settings.ENGINE_DEEPL:
+            self._write_log(
+                "Ayarlar kaydedildi: çeviri DeepL ile yapılacak.",
+                "Anahtar Windows Kimlik Bilgisi Yöneticisi'nde saklanıyor. Proje klasöründe düz bir dosyada "
+                "dursaydı yanlışlıkla GitHub'a gönderilebilirdi.",
+            )
+        else:
+            self._write_log("Ayarlar kaydedildi: çeviri yerel modelle yapılacak.")
         self._load_engine()
 
     def _start(self, job: QRunnable) -> None:
