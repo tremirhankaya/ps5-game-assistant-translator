@@ -59,4 +59,6 @@ class EchoEngine(Engine):
 
 
 def available_engines() -> list[type[Engine]]:
-    return [GoogleEngine, EchoEngine]
+    from .local import Gemma4Engine, HyMT2Engine
+
+    return [GoogleEngine, HyMT2Engine, Gemma4Engine, EchoEngine]
