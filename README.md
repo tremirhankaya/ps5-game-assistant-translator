@@ -1,123 +1,205 @@
 # PS5 Game Assistant Translator
 
-PS5 oyunlarındaki İngilizce altyazıları webcam ile okuyup anlık olarak Türkçeye çeviren açık kaynak bir Windows uygulaması. Çeviriyi ikinci monitörde ya da telefonunda gösterir.
+PS5 oyunlarındaki İngilizce altyazıları webcam ile okuyup Türkçeye çeviren bir Windows uygulaması. Çevirileri ikinci monitörde veya aynı ağdaki bir telefonun tarayıcısında takip edebilirsin.
 
-> Reads English subtitles from PS5 games through a webcam, translates them to Turkish in real time and shows them on a second monitor or a phone. Windows only.
+Oyun oynarken diyalogları daha rahat takip edebilmek için Claude ile konuşarak geliştirdiğim bir hobi projesi. Henüz erken sürüm; eksikler ve hatalar olabilir. Katkılara ve PR'lara açık.
 
-**Durum:** Erken sürüm. Çalışıyor, ama hatalarla karşılaşabilirsin.
+> Resmî bir ürün değildir. Sony Interactive Entertainment ile bağlantısı yoktur. “PlayStation” ve “PS5”, Sony'nin ticari markalarıdır.
 
-> **Resmî bir ürün değildir.** Hobi projesidir; Sony Interactive Entertainment ile bağlantısı yoktur. "PlayStation" ve "PS5" Sony'nin ticari markalarıdır.
+## Başlamadan önce
 
-## Nasıl çalışır
+Gerekenler:
 
-```
-Webcam → altyazı alanını düzleştir → OCR (yazıyı oku) → çeviri (DeepL ya da yerel model) → ikinci monitör / telefon
-```
+- Windows 10 veya 11 yüklü bir bilgisayar.
+- Bilgisayara bağlayabileceğin bir webcam. 1080p önerilir.
+- Çevirileri takip etmek için ikinci monitör veya telefon/tablet.
+- İlk kurulum ve dosyaları indirmek için internet bağlantısı.
 
-- PS5 kablolaması değişmez: konsol doğrudan monitöre bağlı kalır, oyun görüntüsüne ve gecikmesine dokunulmaz.
-- Uygulama her adımda ne yaptığını ve neden yaptığını kısa açıklamalarla gösterir.
+PS5, oyun oynadığın monitöre bağlı kalıyor. Webcam'i bilgisayara bağlayıp monitördeki altyazıları görecek şekilde yerleştiriyorsun. Uygulama bu görüntüdeki yazıyı okuyor, çeviriyor ve seçtiğin ekranda gösteriyor. Capture card veya Remote Play gerekmiyor.
 
-## Gerekenler
+Oyunun kendi ayarlarından **İngilizce altyazıları açmayı** unutma.
 
-- Windows 10 ya da 11
-- Bir webcam (1080p önerilir)
-- Çeviri için ikisinden biri: ücretsiz bir DeepL API anahtarı (önerilen) ya da yerel model (anahtar gerekmez, yaklaşık 470 MB indirme)
-- Çeviriyi göstermek için ikinci bir monitör ya da aynı Wi-Fi'da bir telefon / tablet
+## 1. Projeyi indir
 
-## Kurulum
+1. [Projenin GitHub sayfasını](https://github.com/tremirhankaya/ps5-game-assistant-translator) aç.
+2. Dosyaların üstündeki yeşil **Code** düğmesine bas.
+3. **Download ZIP** seçeneğine tıkla.
+4. İnen ZIP dosyasına sağ tıklayıp **Tümünü ayıkla** ile bir klasöre çıkar.
+5. Çıkardığın klasörü aç. İçinde `setup.bat`, `run.bat` ve `README.md` dosyalarını görmelisin.
+
+Dosyaları ZIP'in içinden çalıştırma; önce klasöre çıkarmış ol.
+
+Git kullanıyorsan ZIP yerine terminalden indirebilirsin:
 
 ```powershell
 git clone https://github.com/tremirhankaya/ps5-game-assistant-translator.git
 cd ps5-game-assistant-translator
-.\setup.bat
 ```
 
-`setup.bat` gerekirse Python 3.13'ü kurar, sanal ortamı oluşturur ve paketleri yükler. Python 3.13 kullanılır, çünkü yazı okuma için gereken onnxruntime daha yeni sürümleri henüz desteklemiyor.
+## 2. Kurulumu yap
 
-Uygulamayı açmak için: `.\run.bat`
+1. Proje klasöründeki **setup.bat** dosyasına çift tıkla.
+2. Açılan terminal penceresini kapatmadan kurulumun bitmesini bekle. İnternet hızına göre birkaç dakika sürebilir.
+3. **“Kurulum tamam”** mesajını gördüğünde pencereyi kapatabilirsin.
+4. Uygulamayı açmak için aynı klasördeki **run.bat** dosyasına çift tıkla.
 
-## Kullanım
+`setup.bat`, Python 3.13'ü arar; bulamazsa Windows'un `winget` aracıyla kurmayı dener. Ardından uygulamanın ihtiyaç duyduğu paketleri yükler. Python'ı veya paketleri önceden elle kurman gerekmiyor.
 
-### 1. Çeviri yöntemini seç (bir kez)
+Python kurulamazsa [python.org](https://www.python.org/downloads/windows/) üzerinden **Python 3.13** sürümünü kurup `setup.bat` dosyasını yeniden çalıştır.
 
-**Ayarlar** düğmesine bas ve ikisinden birini seç:
+Sonraki kullanımlarda yalnızca **run.bat** dosyasını açman yeterli. Her seferinde kurulum yapmana gerek yok.
 
-| | DeepL (önerilen) | Yerel model (OPUS-MT) |
+## 3. Çeviri yöntemini seç
+
+Uygulama açıldığında **Ayarlar** düğmesine bas. İki seçenek var:
+
+| | DeepL | Yerel model (OPUS-MT) |
 |---|---|---|
-| Çeviri kalitesi | Daha iyi; önceki repliği bağlam olarak kullanır | Daha düşük; deyim ve argoda daha çok hata yapar |
-| Gereken | Ücretsiz API anahtarı, internet | Bir kez yaklaşık 470 MB indirme |
-| Sınır | Ayda 500.000 karakter | Yok |
-| Gizlilik | Altyazı metinleri DeepL'e gönderilir | Hiçbir metin bilgisayardan çıkmaz |
+| Çeviri | Deyim ve diyaloglarda genellikle daha iyi | Deyim ve argoda daha çok hata yapabilir |
+| API anahtarı | Gerekli | Gerekmiyor |
+| İnternet | Çeviri sırasında gerekli | Model indirildikten sonra gerekmiyor |
+| İlk indirme | Ayrı bir çeviri modeli indirilmez | Yaklaşık 470 MB |
+| Metinler | DeepL'e gönderilir | Bilgisayarda çevrilir |
 
-**DeepL için:**
-1. [deepl.com/pro-api](https://www.deepl.com/pro-api) adresinden ücretsiz **DeepL API Free** hesabı aç.
-2. Hesap sayfasından API anahtarını kopyala (sonu `:fx` ile biter).
-3. Ayarlar'da DeepL'i seç, anahtarı yapıştır ve kaydet. Sağ üstte "DeepL kotası: ..." yazısını görüyorsan anahtar çalışıyor.
+### DeepL kullanacaksan
 
-**Yerel model için:** Ayarlar'da "Yerel model"i seç ve kaydet. Model ilk seferde indirilir; bu birkaç dakika sürebilir.
+1. [DeepL API sayfasından](https://www.deepl.com/pro-api) bir API hesabı aç. Normal DeepL çeviri üyeliği yerine **API erişimi** gerekiyor.
+2. DeepL hesabındaki API anahtarını kopyala.
+3. Uygulamada **Ayarlar** bölümünü aç ve **DeepL** seçeneğini işaretle.
+4. Anahtarı ilgili kutuya yapıştırıp kaydet.
+5. Ana pencerenin sağ üstünde **“DeepL kotası”** bilgisinin görünmesini bekle.
 
-Alttaki kutuya İngilizce bir cümle yazıp Enter'a basarak çeviriyi deneyebilirsin.
+Anahtarını GitHub'a veya bir ekran görüntüsüne ekleme. Uygulama anahtarı Windows Kimlik Bilgisi Yöneticisi'nde saklar.
 
-### 2. Kamerayı yerleştir
+### Yerel model kullanacaksan
 
-- Kamerayı masaya, monitörün altına, altyazıların çıktığı bölgeye bakacak şekilde koy. Böylece oyun oynarken seni rahatsız etmez.
-- Kamera ne kadar yakın ve ne kadar az eğik bakarsa yazı o kadar iyi okunur.
-- Kamerayı sabitle: yerinden oynarsa ayarı yeniden yapman gerekir.
+1. **Ayarlar** bölümünde **Yerel model (OPUS-MT)** seçeneğini işaretle.
+2. Kaydet.
+3. İlk kullanımda yaklaşık 470 MB'lık modelin indirilmesini bekle. İndirme ve yükleme durumu ana penceredeki açıklama bölümünde görünür.
 
-### 3. Altyazı alanını ayarla (bir kez)
+Model bir kez indirilir. Sonraki açılışlarda yeniden indirilmez; çeviri bilgisayarda yapılır.
 
-**Kamera** düğmesine bas.
+Kamerayı ayarlamadan önce çeviriyi deneyebilirsin: ana pencerenin altındaki kutuya İngilizce bir cümle yazıp **Enter**'a bas. Türkçe karşılığını görüyorsan bu adım tamam.
 
-1. **Kamera:** Görüntü gelmiyorsa ya da yanlış kamera açıldıysa üstten başka bir numara seç. NVIDIA Broadcast ve OBS gibi programlar da sanal kamera ekler.
-2. **Kamera neyi görüyor:** Kamera monitörün tamamını görüyorsa "Ekranın tamamını", yalnızca alt kısmını görüyorsa "Ekranın alt kısmını" seç.
-3. **Köşeler:** Soldaki görüntüde 4 köşeye tıkla.
-   - "Ekranın tamamı" modunda monitör ekranının 4 köşesi.
-   - "Ekranın alt kısmı" modunda, ekranın görünen kısmında kenarlara paralel bir dikdörtgen: alt köşeler ekranın alt kenarında, üst köşeler altyazının biraz üstünde.
-   - Köşeleri sürükleyerek düzeltebilirsin. Sarı ızgara ekranın kenarlarına paralel durmalı.
-4. **Altyazı alanı:** Sağdaki düzleştirilmiş görüntüde altyazının çıktığı alanı fareyle sürükleyerek seç. İki satırlık altyazılar da sığacak kadar yüksek tut.
-5. **Otomatik ayarla:** Ekranda bir altyazı görünürken bu düğmeye bas. Uygulama eğimi, yüksekliği ve alanı kendisi ayarlar. Birkaç saniye ile bir dakika arası sürebilir.
+## 4. Kamerayı yerleştir
 
-Pencerenin altındaki "OCR okudu: ..." satırı altyazıyı doğru gösteriyorsa ayar tamamdır. Ayarlar kaydedilir; kamera yerinden oynamadıkça tekrar yapman gerekmez.
+1. Webcam'i bilgisayara bağla.
+2. PS5'te bir oyun aç ve İngilizce altyazının göründüğü bir sahneye gel.
+3. Kamerayı monitördeki altyazıları görecek şekilde yerleştir. Monitörün altında, masanın üzerinde durabilir; ekranın tamamını görmesi gerekmiyor.
+4. Kamerayı sabitle. Yerinden oynarsa uygulamadaki alan seçimini yeniden yapman gerekir.
 
-### 4. Canlı çeviriyi başlat
+Kamera görüntüsünde yazılar bulanıksa veya çok küçük görünüyorsa önce kameranın konumunu düzelt. Daha yakından ve daha az eğik bakması genellikle okumayı kolaylaştırır. Altyazının başı ve sonu kadrajın dışında kalmasın.
 
-Ana pencerede **Canlı çeviri** kutusunu işaretle. Kamera penceresini kapatabilirsin; arka planda çalışmaya devam eder. Durdurmak için kutunun işaretini kaldır.
+## 5. Uygulamada kamera ayarını yap
 
-### 5. Çeviriyi göster
+Ana penceredeki **Kamera** düğmesine bas. Uygulama, görüntüyü düzleştirmek ve altyazı alanını seçmek için sana yardımcı oluyor.
 
-- **Tam ekran** (F11): Çevirileri, uygulama penceresinin bulunduğu monitörde tam ekran gösterir. Önce pencereyi ikinci monitöre sürükle. Çıkmak için Esc ya da çift tık.
-- **Telefonda göster:** Düğmeye bas ve çıkan QR kodu telefonun kamerasıyla okut. Çeviriler telefonun tarayıcısında açılır; uygulama kurmak gerekmez. Telefon ve bilgisayar aynı Wi-Fi ağında olmalı.
-- **Geçmiş:** Tam ekranda H tuşu ya da "Geçmiş" düğmesi, o ana kadarki tüm çevirileri listeler; arama kutusuyla eski bir repliği bulabilirsin. Telefondaki sayfada da aynı düğme var.
+### Doğru kamerayı seç
 
-## Sorun giderme
+Üstteki **Kamera** listesinden görüntünün geldiği kamerayı seç. Görüntü yoksa veya başka bir kamera görünüyorsa diğer numaraları dene. OBS ve NVIDIA Broadcast gibi programlar da listede sanal kamera olarak görünebilir.
 
-| Sorun | Çözüm |
+### Kameranın neyi gördüğünü seç
+
+**Kamera neyi görüyor** listesinden konumuna uygun seçeneği seç:
+
+- **Ekranın tamamını:** Monitörün dört köşesi de kamera görüntüsünde görünüyorsa.
+- **Ekranın alt kısmını:** Kamera yalnızca altyazıların olduğu alt bölgeye bakıyorsa.
+
+### Dört köşeyi işaretle
+
+Soldaki kamera görüntüsünde dört köşeye tıkla:
+
+- Ekranın tamamını seçtiysen monitörün görüntü alanının dört köşesini işaretle.
+- Ekranın alt kısmını seçtiysen altyazıyı içine alan bir dikdörtgenin dört köşesini işaretle. Alt köşeler ekranın alt kenarına, üst köşeler altyazının biraz üstüne gelebilir.
+
+Sağ tarafta seçtiğin alanın düzleştirilmiş hâli görünür. Sarı ızgara çizgilerinin ekranın kenarlarıyla aynı yönde olmasına bak. Bir köşe yanlış yerdeyse sürükleyerek düzelt; baştan seçmek istersen **Köşeleri sıfırla** düğmesini kullan.
+
+### Altyazı alanını seç
+
+Sağdaki düzleştirilmiş görüntüde fareyle sürükleyerek altyazıların çıktığı alanı seç. İki satırlık altyazılar da içine sığsın. Alanı çok dar seçersen cümlenin başı veya sonu kesilebilir.
+
+Pencerenin altındaki önizleme, uygulamanın yazı okumak için kullanacağı görüntüyü gösterir.
+
+### Otomatik ayarı çalıştır
+
+1. Oyunda bir altyazı görünmesini bekle. Mümkünse altyazı görünürken oyunu duraklat.
+2. **Otomatik ayarla** düğmesine bas.
+3. İşlem bitene kadar bekle; yaklaşık 10–60 saniye sürebilir.
+
+Uygulama, düğmeye bastığın andaki görüntü üzerinde farklı ayarları deneyip yazıyı daha iyi okuyabildiği ayarı seçer. Kamera konumunu fiziksel olarak değiştirmez; görüntünün eğimini, yüksekliğini ve altyazı alanını düzenler.
+
+Alttaki **“OCR okudu: …”** satırında oyundaki İngilizce altyazıyı doğru görüyorsan ayar tamam. OCR, görüntüdeki yazıyı metne çeviren bölümün adı.
+
+Yazılar hâlâ basık görünüyorsa “Ekranın alt kısmını” modundaki **Yükseklik düzeltme** kaydırıcısını deneyebilirsin. Yanlış alan seçtiysen **Altyazı alanını sıfırla** düğmesiyle yeniden seç.
+
+Kamera ve alan ayarları kaydedilir. Kamera yerinden oynamadıkça her açılışta bunları tekrarlamana gerek yok.
+
+## 6. Canlı çeviriyi başlat
+
+1. Ana pencereye dön.
+2. **Canlı çeviri** kutusunu işaretle.
+3. Oyunda yeni bir altyazı çıktığında Türkçe çevirisinin gelmesini bekle.
+
+Uygulama kameradan okunan yazıyı kontrol edip çeviriye gönderir. Aynı altyazı ekranda dururken sürekli yeniden çevrilmez.
+
+Canlı çeviri açıkken kamera ayar penceresini kapatabilirsin; kamera arka planda çalışmaya devam eder. Çeviriyi durdurmak için **Canlı çeviri** kutusunun işaretini kaldır.
+
+## 7. Çevirileri hangi ekranda takip edeceğini seç
+
+### İkinci monitör
+
+1. Uygulamanın ana penceresini ikinci monitöre sürükle.
+2. **Tam ekran** düğmesine bas veya **F11** tuşunu kullan.
+3. Türkçe çeviri ve İngilizce metin bu monitörde gösterilir.
+
+Tam ekrandan çıkmak için **Esc**'ye bas veya ekrana çift tıkla. **Geçmiş** düğmesiyle önceki replikleri görebilir, arama kutusundan bir kelimeyi arayabilirsin. Canlı görünümde **H** tuşu da geçmişi açar.
+
+### Telefon veya tablet
+
+1. Telefonun ve bilgisayarın aynı yerel ağda olduğundan emin ol. Bilgisayar modeme kabloyla, telefon Wi-Fi ile bağlı olabilir.
+2. Uygulamada **Telefonda göster** düğmesine bas.
+3. Açılan penceredeki QR kodu telefonun kamerasıyla okut.
+4. Bağlantıyı tarayıcıda aç. Anlık çeviriler burada görünür; telefona uygulama kurman gerekmiyor.
+
+Telefondaki **Geçmiş** düğmesinden önceki repliklere bakabilirsin. Paylaşımı kapatmak için bilgisayardaki **Telefonda göster** düğmesine tekrar bas.
+
+Windows Güvenlik Duvarı izin isterse, güvendiğin ev ağında **Özel ağlar** için izin ver. Bu özellik HTTP kullanır; QR kodu ve bağlantıyı bilen, bilgisayarına ağ üzerinden erişebilen kişiler altyazıları ve geçmişi okuyabilir. QR kodunu veya adresi herkese açık bir fotoğraf ya da videoda gösterme.
+
+## Bir şey çalışmazsa
+
+| Sorun | Ne yapabilirsin? |
 |---|---|
-| Kamera görüntüsü gelmiyor | Üstten başka bir kamera numarası seç. Kamerayı kullanan başka programları kapat. |
-| "OCR yazı görmedi" ya da yanlış okuyor | Altyazı ekrandayken **Otomatik ayarla**'ya bas. Olmazsa kamerayı yaklaştır, açıyı azalt, köşeleri yeniden seç. |
-| Çeviri gelmiyor | **Ayarlar**'dan DeepL anahtarını kontrol et ya da yerel modele geç. Açıklama panelindeki hata mesajına bak. |
-| Telefonda sayfa açılmıyor | İkisi aynı Wi-Fi'da mı? Windows Güvenlik Duvarı'nda uygulamaya "Özel ağlar" için izin ver. |
-| Telefonun ekranı kapanıyor | Telefonun ayarlarından ekran zaman aşımını uzat. |
-| Telefonda "Tam ekran" düğmesi yok | iPhone'lar buna izin vermiyor. Safari'de Paylaş > "Ana Ekrana Ekle" ile aynı sonucu alırsın. |
+| Python kurulamadı | Python 3.13'ü elle kur, ardından `setup.bat` dosyasını tekrar çalıştır. |
+| Kurulum hata verdi | Terminalin sonundaki hata mesajını kontrol et. Yardım isterken mesajı metin olarak veya ekran görüntüsüyle paylaş. |
+| `run.bat` önce kurulum yapmamı istiyor | Aynı klasördeki `setup.bat` dosyasını çalıştır ve “Kurulum tamam” mesajını bekle. |
+| Kamera görüntüsü gelmiyor | Kamera listesindeki diğer numaraları dene. Kamerayı kullanan başka programları kapat ve Windows kamera izinlerini kontrol et. |
+| “OCR yazı görmedi” yazıyor | Oyunda altyazı açıkken **Otomatik ayarla**'ya bas. Alttaki önizlemede yazının tamamı görünüyor mu kontrol et. |
+| Yazı yanlış veya eksik okunuyor | Kameranın odağını ve konumunu düzelt. Seçtiğin alanı genişlet; iki satırın da sığdığından emin ol. |
+| İngilizce metin okunuyor ama çeviri gelmiyor | **Canlı çeviri** açık mı kontrol et. Çeviriyi alttaki metin kutusundan dene; açıklama bölümündeki hata mesajına bak. |
+| DeepL anahtarı kabul edilmiyor | API anahtarını doğru kopyaladığını kontrol et. İstersen Ayarlar'dan yerel modele geç. |
+| Telefonda sayfa açılmıyor | Telefonun mobil veri veya misafir ağı yerine bilgisayarla aynı yerel ağda olduğunu kontrol et. Güvenlik duvarındaki özel ağ iznine bak. |
+| Telefonun ekranı kapanıyor | Telefon ayarlarından ekran zaman aşımını uzat. |
 
-## Güvenlik ve gizlilik
+## Veriler nerede tutuluyor?
 
-- **DeepL anahtarı** yalnızca senin bilgisayarında, Windows Kimlik Bilgisi Yöneticisi'nde saklanır. Proje klasörüne ya da ayar dosyasına yazılmaz ve yalnızca DeepL'e gönderilir. Anahtarını kimseyle paylaşma.
-- **Kamera görüntüleri** diske kaydedilmez ve hiçbir yere gönderilmez. DeepL seçiliyse internete çıkan tek şey, çevrilmek üzere DeepL'e gönderilen altyazı metinleridir. DeepL'in ücretsiz API'si gönderilen metinleri saklayabilir; ayrıntı için DeepL'in kendi koşullarına bak. Yerel model seçiliyse hiçbir metin bilgisayardan çıkmaz.
-- **Yerel model** ilk kullanımda Hugging Face'ten indirilir (`ooeoeo/opus-mt-tc-big-en-tr-ct2-float16`). İndirilen sürüm kodda sabitlenmiştir; depo sonradan değişse bile aynı dosyalar indirilir.
-- **Telefonda göster** özelliği varsayılan olarak kapalıdır. Açıldığında bilgisayar yerel ağda şifresiz (http) bir sayfa yayınlar. Sayfada yalnızca çevrilmiş altyazılar bulunur ve adresteki rastgele kod olmadan açılamaz. Yine de aynı ağdaki biri trafiği dinleyerek altyazıları görebilir. **Bu özelliği yalnızca güvendiğin ev ağında kullan; ortak ağlarda (yurt, kafe, iş yeri) açma.**
-- **Ekran görüntüsü ya da video paylaşırken** "Telefonda göster" penceresindeki QR kodu ve adresi gösterme; gizli kodu ve yerel IP adresini içerir.
-- **Paket sürümleri** henüz sabitlenmedi: `setup.bat` her kurulumda paketlerin güncel sürümlerini indirir.
-
-## Bilinen sınırlar
-
-- Yalnızca Windows; yalnızca İngilizce → Türkçe için denendi.
-- Okuma kalitesi kameranın konumuna, çözünürlüğüne ve ışığa bağlıdır.
-- Çeviri, altyazı ekrana geldikten kısa bir süre sonra görünür (okuma + çeviri süresi).
+- Kamera görüntüleri uygulama tarafından diske kaydedilmez veya paylaşım sayfasına gönderilmez.
+- DeepL seçiliyse altyazı metni ve önceki replik bağlam olarak DeepL'e gönderilir. Servisin veri işleme koşulları için DeepL'in kendi belgelerine bak.
+- Yerel model seçiliyse çeviri bilgisayarda yapılır. Model ilk kullanımda Hugging Face'ten indirilir; indirilecek depo sürümü kodda sabitlenmiştir.
+- DeepL anahtarı proje klasörüne veya ayar dosyasına yazılmaz; Windows Kimlik Bilgisi Yöneticisi'nde saklanır.
+- Telefon paylaşımı varsayılan olarak kapalıdır. Açıldığında İngilizce metin, Türkçe çeviri ve oturumdaki çeviri geçmişi paylaşılır; API anahtarı paylaşılmaz. Bu özelliği güvendiğin ev ağında kullan.
 - Çeviri geçmişi uygulama kapanınca silinir.
+- Paket sürümleri henüz sabitlenmemiştir; kurulum sırasında indirilen sürümler zamanla değişebilir.
 
-## Lisans ve teşekkür
+## Eksikler ve katkı
+
+Uygulama Windows'ta İngilizce → Türkçe çeviri için geliştiriliyor. Okuma ve çeviri anlık değildir; kamera görüntüsünün okunması ve metnin çevrilmesi biraz zaman alır. Sonuç, kameraya ve seçtiğin çeviri yöntemine göre değişir.
+
+Bir hata bulursan [issue açabilirsin](https://github.com/tremirhankaya/ps5-game-assistant-translator/issues). Hangi adımda olduğunu, beklediğin sonucu ve varsa hata mesajını yazman yeterli. Ekran görüntüsü eklerken API anahtarını ve telefon paylaşım adresini gizle.
+
+Düzeltme veya geliştirme göndermek istersen PR açabilirsin.
+
+## Lisans ve kullanılan araçlar
 
 Uygulamanın kodu MIT lisanslıdır.
 
-Yerel çeviri modeli uygulamayla birlikte dağıtılmaz. Kaynağı, Helsinki Üniversitesi Dil Teknolojileri Araştırma Grubu'nun [OPUS-MT](https://github.com/Helsinki-NLP/Opus-MT) projesindeki `opus-mt-tc-big-en-tr` modelidir (CC BY 4.0); CTranslate2 biçimine dönüştürülmüş hâli kullanılır. Yazı okuma için [RapidOCR](https://github.com/RapidAI/RapidOCR) kullanılır.
+Yazı okuma için [RapidOCR](https://github.com/RapidAI/RapidOCR) kullanılır. Yerel çeviri modeli uygulamayla birlikte dağıtılmaz; ilk kullanımda [Hugging Face'teki CTranslate2 dönüşümünden](https://huggingface.co/ooeoeo/opus-mt-tc-big-en-tr-ct2-float16) indirilir. Kaynak model, Helsinki Üniversitesi Dil Teknolojileri Araştırma Grubu'nun [OPUS-MT](https://github.com/Helsinki-NLP/Opus-MT) projesindeki `opus-mt-tc-big-en-tr` modelidir (CC BY 4.0).
