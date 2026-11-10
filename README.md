@@ -176,6 +176,20 @@ Telefondaki **Geçmiş** düğmesinden önceki repliklere bakabilirsin. Paylaş�
 
 Windows Güvenlik Duvarı izin isterse, güvendiğin ev ağında **Özel ağlar** için izin ver. Bu özellik HTTP kullanır; QR kodu ve bağlantıyı bilen, bilgisayarına ağ üzerinden erişebilen kişiler altyazıları ve geçmişi okuyabilir. QR kodunu veya adresi herkese açık bir fotoğraf ya da videoda gösterme.
 
+## Bilgisayarı ne kadar yorar?
+
+Yerel çeviri modeli (OPUS-MT) işlemcide çalışır; çeviri için harici ekran kartı gerekmez. Yükü azaltmak için modelin hesaplama ayarı **1 iş parçacığı** olarak belirlenmiştir. DeepL seçersen çeviri sunucuda yapılır, ancak kameradaki yazıyı okuma işlemi yine bilgisayarında çalışır.
+
+Yazı okuma (OCR) için bilgisayarın mantıksal işlemci sayısının yarısı, en az **1**, en fazla **4 iş parçacığı** olacak şekilde ayarlanır. Örneğin 4 mantıksal işlemcide 2, 8 veya daha fazlasında 4 seçilir. Bunlar motorların hesaplama ayarlarıdır; uygulamanın tamamının yalnızca bu sayıda iş parçacığı kullanacağı veya belirli fiziksel çekirdeklerle sınırlı kalacağı anlamına gelmez. Kamera, arayüz ve kütüphaneler de kaynak kullanır.
+
+Eski veya düşük güçlü bilgisayarlarda yavaşlama, fan sesi ya da çeviri gecikmesi olabilir. Farklı bilgisayarlarda ölçüm yapılmadığı için henüz minimum sistem gereksinimi veya sabit bir CPU/RAM tüketimi veremiyorum. Yaklaşık **470 MB**, yerel modelin indirme boyutudur; çalışırken kullanacağı RAM miktarı değildir.
+
+Bilgisayar zorlanıyorsa:
+
+- Yerel model yerine **DeepL** seçerek çeviri yükünü azaltabilirsin.
+- Altyazı alanını yalnızca yazıları kapsayacak şekilde seçebilirsin; iki satırın da sığmasına dikkat et.
+- Kullanmadığın programları kapatabilirsin. Otomatik kamera ayarı sırasında da işlemci kullanımı geçici olarak artabilir.
+
 ## Bir şey çalışmazsa
 
 | Sorun | Ne yapabilirsin? |
