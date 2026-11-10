@@ -30,7 +30,7 @@ class GoogleEngine(Engine):
     requests in a short time can get the IP temporarily blocked.
     """
 
-    name = "Google"
+    name = "Google (deneysel)"
     needs_internet = True
 
     def __init__(self, source: str = "en", target: str = "tr") -> None:
@@ -59,6 +59,7 @@ class EchoEngine(Engine):
 
 
 def available_engines() -> list[type[Engine]]:
+    from .deepl_engine import DeepLEngine
     from .local import Gemma4Engine, HyMT2Engine
 
-    return [GoogleEngine, HyMT2Engine, Gemma4Engine, EchoEngine]
+    return [DeepLEngine, GoogleEngine, HyMT2Engine, Gemma4Engine, EchoEngine]
