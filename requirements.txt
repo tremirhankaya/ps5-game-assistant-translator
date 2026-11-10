@@ -1,7 +1,14 @@
 PySide6>=6.7
-deep-translator>=1.11
 requests>=2.31
 deepl>=1.33
 keyring>=25
+# Optional local translation model (OPUS-MT)
+ctranslate2>=4.5
+sentencepiece>=0.2
+huggingface_hub>=0.25
 opencv-python-headless>=4.9
 numpy>=1.26
+segno>=1.6
+# OCR: RapidOCR (onnxruntime has no builds for Python newer than 3.13 yet; setup.bat installs 3.13)
+rapidocr>=3.4
+onnxruntime>=1.20

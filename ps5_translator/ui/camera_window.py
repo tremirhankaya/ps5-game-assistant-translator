@@ -14,7 +14,7 @@ from typing import Callable
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import QThread, Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QImage, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -28,8 +28,13 @@ from PySide6.QtWidgets import (
 )
 
 from .. import settings
+from ..ocr import OcrResult, RapidOcrEngine
 from ..vision import Calibration
+from ..vision.autotune import AutoTuneReport, auto_calibrate
 from ..vision.calibration import FULL, PARTIAL
+from .jobs import JobRunner
+
+OCR_INTERVAL_MS = 40  # the subtitle area is read again as soon as the previous read is done
 
 DRAG_DISTANCE = 0.03  # how close (as a fraction of the image) a click must be to grab a corner
 YELLOW = (0, 200, 255)
@@ -43,7 +48,7 @@ class CameraThread(QThread):
     opened = Signal(int, int, str)
     failed = Signal(str)
 
-    def __init__(self, index: int, width: int = 1920, height: int = 1080, preview_fps: int = 15) -> None:
+    def __init__(self, index: int, width: int = 1920, height: int = 1080, preview_fps: int = 30) -> None:
         super().__init__()
         self.index = index
         self.width = width
@@ -151,9 +156,11 @@ def _caption(text: str = "") -> QLabel:
 
 class CameraWindow(QWidget):
     calibration_changed = Signal(object)
+    ocr_read = Signal(object)  # OcrResult, every time the subtitle area was read
 
-    def __init__(self, log: Callable[[str, str], None]) -> None:
+    def __init__(self, log: Callable[[str, str], None], ocr_factory=RapidOcrEngine) -> None:
         super().__init__()
+        self._ocr_factory = ocr_factory
         self.setWindowTitle("Kamera ve altyazı bölgesi")
         self.resize(1300, 850)
         self._log = log
@@ -165,6 +172,14 @@ class CameraWindow(QWidget):
         self._dragging: int | None = None
         self._band_start: tuple[float, float] | None = None
         self._band_preview: tuple[float, float, float, float] | None = None
+
+        self._ocr_runner = JobRunner()
+        self.ocr_engine = None
+        self._ocr_busy = False
+        self._auto_running = False
+        self._frame_time = 0.0
+        self.keep_running = False  # live translation: keep camera and OCR working while the window is closed
+        self._calibration_version = 0  # increases on every change; old OCR results are ignored
 
         config = settings.load_config()
         self.calibration = Calibration.from_dict(config.get("calibration"))
@@ -192,6 +207,10 @@ class CameraWindow(QWidget):
         reset_band = QPushButton("Altyazı alanını sıfırla")
         reset_band.clicked.connect(self._reset_band)
         top.addWidget(reset_band)
+        self.auto_button = QPushButton("Otomatik ayarla")
+        self.auto_button.setToolTip("Ekranda bir altyazı görünürken bas.")
+        self.auto_button.clicked.connect(self._auto_calibrate)
+        top.addWidget(self.auto_button)
         top.addStretch()
         layout.addLayout(top)
 
@@ -239,6 +258,15 @@ class CameraWindow(QWidget):
         self.crop_view = _FrameView(400, 120)
         layout.addWidget(self.crop_view, stretch=1)
 
+        self.ocr_label = _caption("OCR hazırlanıyor...")
+        self.ocr_label.setFont(QFont("Segoe UI", 12))
+        layout.addWidget(self.ocr_label)
+
+        self._ocr_timer = QTimer(self)
+        self._ocr_timer.timeout.connect(self._read_subtitles)
+        self._ocr_timer.start(OCR_INTERVAL_MS)
+        self._load_ocr()
+
         self._update_hint()
         self._start_camera(camera_index)
 
@@ -273,7 +301,9 @@ class CameraWindow(QWidget):
 
     def shutdown(self, timeout_ms: int = 8000) -> None:
         """Stop all camera threads and wait for them (used when the app closes)."""
+        self._ocr_timer.stop()
         self._stop_camera()
+        self._ocr_runner.wait()
         for thread in list(self._closing_threads):
             thread.wait(timeout_ms)
 
@@ -286,6 +316,9 @@ class CameraWindow(QWidget):
 
     def _on_frame(self, frame: np.ndarray) -> None:
         self.latest_frame = frame
+        self._frame_time = time.monotonic()
+        if not self.isVisible():
+            return  # live translation with the window closed: do not spend CPU on drawing the preview
         calib = self.calibration
         h, w = frame.shape[:2]
 
@@ -389,12 +422,124 @@ class CameraWindow(QWidget):
             )
         self._update_hint()
 
+    # -- OCR
+
+    def _load_ocr(self) -> None:
+        self._ocr_runner.run(self._ocr_factory, self._ocr_ready)
+
+    def _ocr_ready(self, outcome) -> None:
+        ok, value = outcome
+        if not ok:
+            self.ocr_label.setText("OCR kullanılamıyor.")
+            self._log(f"OCR başlatılamadı: {value}")
+            return
+        self.ocr_engine = value
+        self._log(
+            f"OCR hazır: {value.name}.",
+            "OCR, görüntüdeki yazıyı metne çevirir (henüz İngilizce). Her satır için bir güven puanı da verir; "
+            "otomatik ayar bu puanı kullanır.",
+        )
+
+    def _read_subtitles(self) -> None:
+        if self._auto_running or self._ocr_busy or self.ocr_engine is None or self.latest_frame is None:
+            return
+        crop = self.calibration.subtitle_crop(self.latest_frame)
+        if crop is None:
+            return
+        self._ocr_busy = True
+        engine = self.ocr_engine
+        version = self._calibration_version
+        captured_at = self._frame_time
+
+        def read():
+            result = engine.read(crop)
+            result.captured_at = captured_at
+            return result
+
+        self._ocr_runner.run(read, lambda outcome: self._ocr_done(outcome, version))
+
+    def _ocr_done(self, outcome, version: int) -> None:
+        self._ocr_busy = False
+        if self._auto_running or version != self._calibration_version:
+            return  # read with settings that have changed since; a fresh read follows
+        ok, value = outcome
+        if not ok:
+            self.ocr_label.setText(f"OCR hatası: {value}")
+            return
+        result: OcrResult = value
+        if result.text:
+            score = f", güven {result.score:.2f}" if result.score is not None else ""
+            self.ocr_label.setText(f"OCR okudu: \"{result.text}\"  ({result.ms:.0f} ms{score})")
+        else:
+            self.ocr_label.setText(f"OCR yazı görmedi ({result.ms:.0f} ms)")
+        self.ocr_read.emit(result)
+
+    # -- automatic calibration
+
+    def _auto_calibrate(self) -> None:
+        if self.ocr_engine is None:
+            self._log("Otomatik ayar için önce OCR motorunun hazır olması gerekiyor.")
+            return
+        if self.latest_frame is None or not self.calibration.has_screen:
+            self._log("Otomatik ayar için önce kamerada görüntü olmalı ve 4 köşe seçilmiş olmalı.")
+            return
+        frame = self.latest_frame.copy()  # use one still frame so every try sees the same image
+        calib = Calibration.from_dict(self.calibration.to_dict())
+        engine = self.ocr_engine
+        self.auto_button.setEnabled(False)
+        self._auto_running = True
+        self._ocr_timer.stop()
+        self.ocr_label.setText("Otomatik ayar çalışıyor... (10-60 sn sürebilir)")
+        self._log(
+            "Otomatik ayar başladı.",
+            "Ekrandaki altyazıyı farklı eğim ve yükseklik ayarlarıyla tekrar tekrar okuyoruz. "
+            "OCR'ın en emin ve en anlamlı okuduğu ayarı seçeceğiz.",
+        )
+        self._ocr_runner.run(lambda: auto_calibrate(frame, calib, engine), self._auto_done)
+
+    def _auto_done(self, outcome) -> None:
+        self._auto_running = False
+        self.auto_button.setEnabled(True)
+        self._ocr_timer.start(OCR_INTERVAL_MS)
+        ok, value = outcome
+        if not ok:
+            self._log(f"Otomatik ayar başarısız: {value}")
+            return
+        report: AutoTuneReport = value
+        if not report.found_text:
+            self._log(
+                "Otomatik ayar hiçbir denemede yazı bulamadı.",
+                "Düğmeye ekranda bir altyazı görünürken bas. Köşelerin ekranın altyazı olan kısmını kapsadığından emin ol.",
+            )
+            return
+        best = report.best
+        tried = sorted(report.trials, key=lambda t: t.quality, reverse=True)[:5]
+        table = "; ".join(f"%{t.height_scale * 100:.0f}/{t.rotation:.1f}°: {t.quality:.2f}" for t in tried)
+        calib = self.calibration
+        calib.height_scale = best.height_scale
+        calib.rotation = best.rotation
+        if report.band:
+            calib.band = report.band
+        self.scale_slider.blockSignals(True)
+        self.scale_slider.setValue(int(round(best.height_scale * 100)))
+        self.scale_slider.blockSignals(False)
+        self._update_scale_label()
+        self._save()
+        self._update_hint()
+        self._log(
+            f"Otomatik ayar bitti ({len(report.trials)} deneme). Seçilen: yükseklik %{best.height_scale * 100:.0f}, "
+            f"eğim düzeltme {best.rotation:.1f}°. Okunan: \"{best.text}\" (kalite {best.quality:.2f})",
+            f"En iyi denemeler (yükseklik/eğim: kalite): {table}. Kalite = OCR'ın güveni × gerçek kelimeye "
+            "benzeyen kelimelerin oranı. Sonuç kötü görünürse kaydırıcıyla elle düzeltebilirsin.",
+        )
+
     # -- partial mode
 
     def _mode_changed(self, index: int) -> None:
         self.calibration.mode = self.mode_box.itemData(index)
         self.calibration.screen.clear()  # corners mean something different in each mode
         self.calibration.band = None
+        self.calibration.rotation = 0.0
         self._save()
         if self.calibration.mode == PARTIAL:
             self._log(
@@ -428,11 +573,13 @@ class CameraWindow(QWidget):
     # -- helpers
 
     def _save(self) -> None:
+        self._calibration_version += 1
         settings.save_config(calibration=self.calibration.to_dict())
         self.calibration_changed.emit(self.calibration)
 
     def _reset_corners(self) -> None:
         self.calibration.screen.clear()
+        self.calibration.rotation = 0.0
         self._save()
         self._update_hint()
 
@@ -480,8 +627,21 @@ class CameraWindow(QWidget):
     def showEvent(self, event) -> None:
         if self._thread is None:  # reopened after being closed
             self._start_camera(self.camera_box.currentIndex())
+        self._ocr_timer.start(OCR_INTERVAL_MS)
         super().showEvent(event)
 
+    def set_live(self, on: bool) -> None:
+        self.keep_running = on
+        if on:
+            if self._thread is None:
+                self._start_camera(self.camera_box.currentIndex())
+            self._ocr_timer.start(OCR_INTERVAL_MS)
+        elif not self.isVisible():
+            self._ocr_timer.stop()
+            self._stop_camera()
+
     def closeEvent(self, event) -> None:
-        self._stop_camera()  # camera keeps closing in the background; the app waits for it on exit
+        if not self.keep_running:
+            self._ocr_timer.stop()
+            self._stop_camera()  # camera keeps closing in the background; the app waits for it on exit
         super().closeEvent(event)

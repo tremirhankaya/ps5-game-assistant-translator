@@ -12,9 +12,7 @@ from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -26,7 +24,12 @@ from PySide6.QtWidgets import (
 
 from .. import settings
 from ..explain import explain
-from ..translation import Result, TranslationPipeline, available_engines
+from ..ocr.stability import StabilityFilter
+from ..share import ShareServer, new_code
+from .settings_dialog import SettingsDialog
+from .share_dialog import ShareDialog
+from .subtitle_window import SubtitleWindow
+from ..translation import Result, TranslationPipeline, create_engine, opus_engine
 
 
 class _Signals(QObject):
@@ -62,8 +65,9 @@ class _CallJob(QRunnable):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, engine_factory=create_engine) -> None:
         super().__init__()
+        self._engine_factory = engine_factory
         self.setWindowTitle("PS5 Game Assistant Translator")
         self.resize(1000, 700)
 
@@ -71,13 +75,15 @@ class MainWindow(QMainWindow):
         self._pool = QThreadPool()
         self._jobs: set[QRunnable] = set()  # keep jobs alive until they report back
         self._pool.setMaxThreadCount(1)
-        self._engines = available_engines()
         self._pipeline: TranslationPipeline | None = None
         self._translated_since_usage = 0
         self._camera_window = None
+        self._stability = StabilityFilter()
+        self._subtitle_window = SubtitleWindow()
+        self._share: ShareServer | None = None
 
         self._build_ui()
-        self._select_engine(0)
+        self._load_engine()
 
     # ------------------------------------------------------------- layout
 
@@ -88,18 +94,26 @@ class MainWindow(QMainWindow):
         layout.setSpacing(12)
 
         top = QHBoxLayout()
-        top.addWidget(QLabel("Çeviri motoru:"))
-        self.engine_box = QComboBox()
-        for engine in self._engines:
-            self.engine_box.addItem(engine.name)
-        self.engine_box.currentIndexChanged.connect(self._select_engine)
-        top.addWidget(self.engine_box)
         camera_button = QPushButton("Kamera")
         camera_button.clicked.connect(self._open_camera)
         top.addWidget(camera_button)
         settings_button = QPushButton("Ayarlar")
         settings_button.clicked.connect(self._open_settings)
         top.addWidget(settings_button)
+        self.live_toggle = QCheckBox("Canlı çeviri")
+        self.live_toggle.setToolTip("Kameranın okuduğu altyazıları otomatik çevirir.")
+        self.live_toggle.toggled.connect(self._live_toggled)
+        top.addWidget(self.live_toggle)
+        fullscreen_button = QPushButton("Tam ekran")
+        fullscreen_button.setToolTip("Çevirileri bu monitörde tam ekran gösterir (F11). Çıkmak için Esc.")
+        fullscreen_button.setShortcut("F11")
+        fullscreen_button.clicked.connect(self._open_fullscreen)
+        top.addWidget(fullscreen_button)
+        self.phone_button = QPushButton("Telefonda göster")
+        self.phone_button.setCheckable(True)
+        self.phone_button.setToolTip("Çevirileri aynı Wi-Fi'daki bir telefonun tarayıcısında gösterir.")
+        self.phone_button.toggled.connect(self._phone_toggled)
+        top.addWidget(self.phone_button)
         top.addStretch()
         self.usage_label = QLabel("")
         self.usage_label.setStyleSheet("color:#888;")
@@ -146,55 +160,34 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------- actions
 
-    def _select_engine(self, index: int) -> None:
-        engine_cls = self._engines[index]
-        self.engine_box.setEnabled(False)
-
-        def prepare():
-            engine = engine_cls()
-            warm_up = getattr(engine, "warm_up", None)
-            if warm_up:
-                start = time.perf_counter()
-                warm_up()
-                return engine, (time.perf_counter() - start) * 1000
-            return engine, None
-
-        if getattr(engine_cls, "model", ""):
+    def _load_engine(self) -> None:
+        if (
+            self._engine_factory is create_engine
+            and settings.get_engine() == settings.ENGINE_OPUS
+            and not opus_engine.is_downloaded()
+        ):
             self._write_log(
-                f"{engine_cls.name} hazırlanıyor...",
-                "Yerel model ilk kullanımda diskten ekran kartına (ya da RAM'e) yükleniyor. "
-                "Bunu şimdi yapıyoruz ki ilk altyazı beklemesin.",
+                f"Yerel çeviri modeli indiriliyor (yaklaşık {opus_engine.MODEL_SIZE_MB} MB). Bu birkaç dakika sürebilir...",
+                "Model yalnızca bir kez indirilir ve bu bilgisayarda saklanır; sonraki açılışlarda hemen yüklenir.",
             )
-        job = _CallJob(prepare)
-        job.signals.done.connect(lambda outcome: self._engine_ready(engine_cls, outcome))
+        job = _CallJob(self._engine_factory)
+        job.signals.done.connect(self._engine_ready)
         self._start(job)
 
-    def _engine_ready(self, engine_cls, outcome) -> None:
-        self.engine_box.setEnabled(True)
+    def _engine_ready(self, outcome) -> None:
         ok, value = outcome
         if not ok:
-            self._write_log(
-                f"{engine_cls.name} başlatılamadı: {value}",
-                "Bu motor için gereken program ya da model hazır değil. Mesajdaki adımı uygulayıp tekrar seç.",
-            )
+            self._write_log(f"Çeviri başlatılamadı: {value}")
             return
-        engine, load_ms = value
+        engine = value
         if self._pipeline is None:
             self._pipeline = TranslationPipeline(engine)
         else:
             self._pipeline.set_engine(engine)
-        note = getattr(engine, "ready_note", None)
         self.usage_label.setText("")
         self._refresh_usage()
-        if load_ms is not None:
-            self._write_log(
-                f"{engine.name} hazır (yükleme {load_ms / 1000:.1f} sn).",
-                "Model 30 dakika bellekte kalacak, sonraki çeviriler hızlı olacak.",
-            )
-        self._write_log(
-            f"Motor değişti: {engine.name}",
-            "Önceki çeviriler silindi, çünkü farklı motorların sonuçları karışmasın.",
-        )
+        self._write_log(f"Çeviri hazır: {engine.name}.")
+        note = getattr(engine, "ready_note", None)
         if note:
             self._write_log(*note)
 
@@ -214,45 +207,132 @@ class MainWindow(QMainWindow):
             used, limit = value
             self.usage_label.setText(f"DeepL kotası: {used:,} / {limit:,} karakter".replace(",", "."))
 
-    def _open_camera(self) -> None:
+    # -- phone
+
+    def _phone_toggled(self, on: bool) -> None:
+        if not on:
+            if self._share is not None:
+                self._share.stop()
+                self._share = None
+                self._write_log("Telefon paylaşımı kapatıldı.")
+            return
+        code = settings.load_config().get("share_code") or new_code()
+        settings.save_config(share_code=code)  # same address next time, so a bookmark keeps working
+        try:
+            self._share = ShareServer(code)
+            self._share.start()
+        except Exception as exc:
+            self._share = None
+            self._write_log(f"Telefon paylaşımı başlatılamadı: {exc}")
+            self.phone_button.setChecked(False)
+            return
+        for line in self._subtitle_window.lines:  # the phone also gets what was translated so far
+            self._share.add_line(line.translated, line.source, line.time)
+        self._write_log(
+            f"Telefon paylaşımı açık: {self._share.url}",
+            "Bilgisayar ev ağında küçük bir web sayfası yayınlıyor; telefon aynı Wi-Fi'dan tarayıcıyla açıyor. "
+            "Sayfada yalnızca çevrilmiş altyazılar var. Adresteki rastgele kod, ağdaki başka cihazların "
+            "sayfayı tahminle açmasını engeller. Windows Güvenlik Duvarı sorarsa 'Özel ağlar' için izin ver.",
+        )
+        ShareDialog(self._share.url, self).exec()
+
+    def _open_fullscreen(self) -> None:
+        # Opens on the monitor this window is on: drag the app to the second monitor first.
+        self._subtitle_window.show_on(self.screen())
+
+    def _ensure_camera(self):
         from .camera_window import CameraWindow
 
         if self._camera_window is None:
             self._camera_window = CameraWindow(log=self._write_log)
-        self._camera_window.show()
-        self._camera_window.raise_()
+            self._camera_window.ocr_read.connect(self._on_ocr)
+        return self._camera_window
+
+    def _open_camera(self) -> None:
+        window = self._ensure_camera()
+        window.show()
+        window.raise_()
+
+    # -- live translation
+
+    def _live_toggled(self, on: bool) -> None:
+        camera = self._ensure_camera()
+        self._stability.reset()
+        camera.set_live(on)
+        if not on:
+            self._write_log("Canlı çeviri durduruldu.")
+            return
+        if not camera.calibration.is_complete:
+            self._write_log(
+                "Canlı çeviri için önce kamera ayarı gerekli.",
+                "Kamera penceresinde köşeleri ve altyazı alanını seç; seçince çeviri kendiliğinden başlar.",
+            )
+            self._open_camera()
+            return
+        self._write_log(
+            "Canlı çeviri başladı.",
+            "Kamera altyazı alanını sürekli okuyor. Bir yazı art arda iki okumada aynı çıkınca çeviriye gönderilir. "
+            "Kamera penceresini kapatabilirsin; arka planda çalışmaya devam eder.",
+        )
+
+    def _on_ocr(self, result) -> None:
+        if not self.live_toggle.isChecked() or self._pipeline is None:
+            return
+        text = self._stability.feed(result.text, result.score, result.captured_at)
+        if text is None:
+            return
+        score = f", güven {result.score:.2f}" if result.score is not None else ""
+        if self._stability.sent_fast:
+            self._write_log(
+                f"OCR okudu, hemen gönderildi: \"{text}\" ({result.ms:.0f} ms{score})",
+                "OCR çok emin ve cümle nokta/soru işaretiyle bitiyor, yani büyük ihtimalle tamamlanmış. "
+                "İkinci okumayı beklemeden çeviriye gönderiyoruz; bu gecikmeyi kısaltır.",
+            )
+        else:
+            self._write_log(
+                f"OCR okudu ve yazı sabitlendi: \"{text}\" ({result.ms:.0f} ms{score})",
+                "Aynı yazı art arda iki kez okundu, yani altyazı tamamlandı ve kamera titremesi değil. "
+                "Yarım cümleleri çevirmemek ve kotayı boşa harcamamak için bunu bekliyoruz.",
+            )
+        if result.touches_edge:
+            self._write_log(
+                "Uyarı: yazı altyazı alanının kenarına değiyor, cümle kesilmiş olabilir.",
+                "Altyazı seçtiğin alandan daha geniş. Kamera penceresinde köşeleri ya da altyazı alanını "
+                "sağa ve sola doğru genişlet; yoksa cümlelerin başı ya da sonu okunmaz.",
+            )
+        first_seen = self._stability.sent_first_seen
+        job = _TranslateJob(self._pipeline, text)
+        job.signals.done.connect(lambda r: self._show_result(r, first_seen))
+        self._start(job)
 
     def closeEvent(self, event) -> None:
+        self._subtitle_window.close()
+        if self._share is not None:
+            self._share.stop()
         if self._camera_window is not None:
             self._camera_window.close()
             self._camera_window.shutdown()
         super().closeEvent(event)
 
     def _open_settings(self) -> None:
-        current = settings.get_deepl_key() or ""
-        key, ok = QInputDialog.getText(
-            self,
-            "DeepL anahtarı",
-            "deepl.com/pro-api adresinden aldığın ücretsiz API anahtarını yapıştır.\n"
-            "Boş bırakırsan kayıtlı anahtar silinir.",
-            QLineEdit.Password,
-            current,
-        )
-        if not ok:
+        dialog = SettingsDialog(self)
+        if not dialog.exec():
             return
         try:
-            settings.set_deepl_key(key)
+            settings.set_deepl_key(dialog.deepl_key)
         except Exception as exc:
             self._write_log(f"Anahtar kaydedilemedi: {exc}")
             return
-        self._write_log(
-            "DeepL anahtarı Windows Kimlik Bilgisi Yöneticisi'ne kaydedildi." if key.strip()
-            else "DeepL anahtarı silindi.",
-            "Anahtar proje klasöründe düz bir dosyada dursaydı yanlışlıkla GitHub'a gönderilebilirdi. "
-            "Windows'un kendi şifre kasasında saklamak daha güvenli.",
-        )
-        if self._engines[self.engine_box.currentIndex()].name == "DeepL":
-            self._select_engine(self.engine_box.currentIndex())
+        settings.set_engine(dialog.engine)
+        if dialog.engine == settings.ENGINE_DEEPL:
+            self._write_log(
+                "Ayarlar kaydedildi: çeviri DeepL ile yapılacak.",
+                "Anahtar Windows Kimlik Bilgisi Yöneticisi'nde saklanıyor. Proje klasöründe düz bir dosyada "
+                "dursaydı yanlışlıkla GitHub'a gönderilebilirdi.",
+            )
+        else:
+            self._write_log("Ayarlar kaydedildi: çeviri yerel modelle yapılacak.")
+        self._load_engine()
 
     def _start(self, job: QRunnable) -> None:
         job.setAutoDelete(False)
@@ -269,9 +349,14 @@ class MainWindow(QMainWindow):
         job.signals.done.connect(self._show_result)
         self._start(job)
 
-    def _show_result(self, result: Result | None) -> None:
+    def _show_result(self, result: Result | None, first_seen: float | None = None) -> None:
         if result is None:
             return
+        if first_seen and not result.skipped and not result.error:
+            total = (time.monotonic() - first_seen) * 1000
+            self._write_log(
+                f"Toplam gecikme: {total:.0f} ms (kameranın altyazıyı ilk gördüğü andan çevirinin ekrana gelmesine kadar)."
+            )
         for event in result.events:
             exp = explain(event)
             self._write_log(exp.what, exp.why)
@@ -282,6 +367,9 @@ class MainWindow(QMainWindow):
             if self._translated_since_usage >= 20:
                 self._refresh_usage()
         self.subtitle.setText(result.translated)
+        added = self._subtitle_window.show_line(result.translated, result.source)
+        if added and self._share is not None:
+            self._share.add_line(result.translated, result.source)
         source_note = "kayıttan" if result.from_cache else f"{result.ms:.0f} ms"
         self.source.setText(f"{result.source}   ·   {source_note}")
 

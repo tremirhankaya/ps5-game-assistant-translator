@@ -36,6 +36,7 @@ class Calibration:
     band: Band | None = None
     mode: str = FULL
     height_scale: float = 1.0  # partial mode: user correction for squashed text
+    rotation: float = 0.0  # degrees; straightens text that is still a little tilted
 
     @property
     def has_screen(self) -> bool:
@@ -80,7 +81,11 @@ class Calibration:
         out_h = max(int((y1 - y0) * screen_h), 1)
         to_flat = self.screen.matrix(w, h, (screen_w, screen_h))
         shift = np.array([[1, 0, -x0 * screen_w], [0, 1, -y0 * screen_h], [0, 0, 1]], dtype=np.float64)
-        return cv2.warpPerspective(frame, shift @ to_flat, (out_w, out_h))
+        crop = cv2.warpPerspective(frame, shift @ to_flat, (out_w, out_h))
+        if abs(self.rotation) > 0.05:
+            rot = cv2.getRotationMatrix2D((out_w / 2, out_h / 2), self.rotation, 1.0)
+            crop = cv2.warpAffine(crop, rot, (out_w, out_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+        return crop
 
     def grid_lines(self, width: int, height: int, divisions: int = 4) -> list[np.ndarray]:
         """Lines of a grid on the screen, drawn in camera coordinates.
@@ -105,6 +110,7 @@ class Calibration:
             "band": list(self.band) if self.band else None,
             "mode": self.mode,
             "height_scale": self.height_scale,
+            "rotation": self.rotation,
         }
 
     @classmethod
@@ -116,4 +122,5 @@ class Calibration:
             band=tuple(band) if band else None,
             mode=data.get("mode", FULL),
             height_scale=float(data.get("height_scale", 1.0)),
+            rotation=float(data.get("rotation", 0.0)),
         )

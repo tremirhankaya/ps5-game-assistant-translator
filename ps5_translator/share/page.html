@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Altyazı</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #fff;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  #bar { position: fixed; top: 0; right: 0; padding: 10px; z-index: 2; }
+  button { color: #ccc; background: #222; border: 1px solid #444; border-radius: 6px;
+    padding: 8px 14px; font-size: 15px; }
+  #live { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: table; width: 100%; height: 100%; }
+  #liveInner { display: table-cell; vertical-align: middle; text-align: center; padding: 50px 5vw 30px; }
+  #recent { color: #777; font-size: 4.2vmin; line-height: 1.35; margin-bottom: 4vmin; white-space: pre-line; }
+  #current { font-size: 9vmin; font-weight: 600; line-height: 1.2; }
+  #source { color: #999; font-size: 3.8vmin; margin-top: 4vmin; }
+  #status { position: fixed; bottom: 6px; left: 0; right: 0; text-align: center; color: #555; font-size: 12px; }
+  #history { display: none; padding: 56px 12px 30px; }
+  #search { width: 100%; box-sizing: border-box; font-size: 17px; padding: 10px; color: #fff;
+    background: #161616; border: 1px solid #444; border-radius: 6px; }
+  .row { padding: 10px 4px; border-bottom: 1px solid #222; }
+  .row .t { color: #666; font-size: 12px; }
+  .row .tr { font-size: 18px; margin: 2px 0; }
+  .row .en { color: #999; font-size: 15px; }
+</style>
+</head>
+<body>
+<div id="bar"><button id="full">Tam ekran</button> <button id="toggle">Geçmiş</button></div>
+<div id="live"><div id="liveInner">
+  <div id="recent"></div>
+  <div id="current">Çeviri bekleniyor...</div>
+  <div id="source"></div>
+</div></div>
+<div id="history">
+  <input id="search" type="search" placeholder="Geçmişte ara (Türkçe ya da İngilizce)">
+  <div id="rows"></div>
+</div>
+<div id="status"></div>
+<script>
+// Plain old JavaScript on purpose: this page must work on old phone browsers.
+var lines = [];
+var showingHistory = false;
+var el = function (id) { return document.getElementById(id); };
+
+function renderLive() {
+  if (!lines.length) { return; }
+  var last = lines[lines.length - 1];
+  var recent = [];
+  for (var i = Math.max(0, lines.length - 4); i < lines.length - 1; i++) { recent.push(lines[i].translated); }
+  el('recent').textContent = recent.join('\n');
+  el('current').textContent = last.translated;
+  el('source').textContent = last.source;
+}
+
+function renderHistory() {
+  var query = el('search').value.toLowerCase();
+  var rows = el('rows');
+  rows.innerHTML = '';
+  for (var i = lines.length - 1; i >= 0; i--) {  // newest first
+    var l = lines[i];
+    if (query && l.source.toLowerCase().indexOf(query) < 0 && l.translated.toLowerCase().indexOf(query) < 0) { continue; }
+    var row = document.createElement('div'); row.className = 'row';
+    var parts = [['t', l.time], ['tr', l.translated], ['en', l.source]];
+    for (var p = 0; p < parts.length; p++) {
+      var d = document.createElement('div'); d.className = parts[p][0]; d.textContent = parts[p][1]; row.appendChild(d);
+    }
+    rows.appendChild(row);
+  }
+}
+
+function render() {
+  renderLive();
+  if (showingHistory) { renderHistory(); }
+  el('toggle').textContent = showingHistory ? 'Canlı görünüm' : 'Geçmiş (' + lines.length + ')';
+}
+
+el('toggle').onclick = function () {
+  showingHistory = !showingHistory;
+  el('live').style.display = showingHistory ? 'none' : 'table';
+  el('history').style.display = showingHistory ? 'block' : 'none';
+  render();
+};
+el('search').oninput = renderHistory;
+
+// Full screen. iPhones do not allow this for web pages; there the button is hidden
+// and "Add to Home Screen" gives the same result.
+var root = document.documentElement;
+var enterFull = root.requestFullscreen || root.webkitRequestFullscreen || root.mozRequestFullScreen || root.msRequestFullscreen;
+var exitFull = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+function isFull() {
+  return document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+}
+if (!enterFull) {
+  el('full').style.display = 'none';
+} else {
+  el('full').onclick = function () {
+    if (isFull()) { exitFull.call(document); } else { enterFull.call(root); }
+  };
+  var onChange = function () { el('full').textContent = isFull() ? 'Tam ekrandan çık' : 'Tam ekran'; };
+  document.addEventListener('fullscreenchange', onChange);
+  document.addEventListener('webkitfullscreenchange', onChange);
+}
+
+function poll() {
+  var xhr = new XMLHttpRequest();
+  // The server answers the moment a new line exists (or after 20 s with nothing),
+  // so a translation reaches the phone without waiting for the next poll.
+  xhr.open('GET', 'lines?after=' + lines.length + '&wait=20', true);
+  xhr.timeout = 30000;
+  xhr.onload = function () {
+    if (xhr.status === 200) {
+      var data = JSON.parse(xhr.responseText);
+      if (data.total < lines.length) { lines = []; }  // the app was restarted
+      if (data.lines.length) { lines = lines.concat(data.lines); render(); }
+      el('status').textContent = '';
+    } else { el('status').textContent = 'Bağlantı hatası (' + xhr.status + ')'; }
+    setTimeout(poll, xhr.status === 200 ? 0 : 2000);
+  };
+  xhr.onerror = xhr.ontimeout = function () {
+    el('status').textContent = 'Bilgisayara bağlanılamıyor, tekrar deneniyor...';
+    setTimeout(poll, 2000);
+  };
+  xhr.send();
+}
+render();
+poll();
+</script>
+</body>
+</html>

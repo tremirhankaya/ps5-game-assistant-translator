@@ -1,77 +1,123 @@
 # PS5 Game Assistant Translator
 
-PS5 oyunlarındaki İngilizce altyazıları webcam ile okuyup anlık olarak Türkçeye çeviren, sonucu ikinci ekranda gösteren açık kaynak bir Windows uygulaması.
+PS5 oyunlarındaki İngilizce altyazıları webcam ile okuyup anlık olarak Türkçeye çeviren açık kaynak bir Windows uygulaması. Çeviriyi ikinci monitörde ya da telefonunda gösterir.
 
-> Reads English subtitles from PS5 games through a webcam, translates them in real time and shows the result on a second screen. Windows only.
+> Reads English subtitles from PS5 games through a webcam, translates them to Turkish in real time and shows them on a second monitor or a phone. Windows only.
 
-**Durum:** Erken geliştirme aşamasında. Henüz kullanıma hazır değil.
+**Durum:** Erken sürüm. Çalışıyor, ama hatalarla karşılaşabilirsin.
+
+> **Resmî bir ürün değildir.** Hobi projesidir; Sony Interactive Entertainment ile bağlantısı yoktur. "PlayStation" ve "PS5" Sony'nin ticari markalarıdır.
 
 ## Nasıl çalışır
 
 ```
-Webcam → görüntüyü düzleştir + altyazı bölgesini kırp → OCR → kararlılık kontrolü → çeviri → ikinci ekran
+Webcam → altyazı alanını düzleştir → OCR (yazıyı oku) → çeviri (DeepL ya da yerel model) → ikinci monitör / telefon
 ```
 
-- **OCR:** Görüntüdeki yazıyı metne çevirir (henüz İngilizce).
-- **Çeviri:** Metni Türkçeye çevirir.
+- PS5 kablolaması değişmez: konsol doğrudan monitöre bağlı kalır, oyun görüntüsüne ve gecikmesine dokunulmaz.
 - Uygulama her adımda ne yaptığını ve neden yaptığını kısa açıklamalarla gösterir.
 
-PS5 kablolaması değişmez: konsol doğrudan monitöre bağlı kalır, oyun görüntüsüne dokunulmaz.
+## Gerekenler
 
-## Hedefler
+- Windows 10 ya da 11
+- Bir webcam (1080p önerilir)
+- Çeviri için ikisinden biri: ücretsiz bir DeepL API anahtarı (önerilen) ya da yerel model (anahtar gerekmez, yaklaşık 470 MB indirme)
+- Çeviriyi göstermek için ikinci bir monitör ya da aynı Wi-Fi'da bir telefon / tablet
 
-- Sadece Windows.
-- Ortalama bir oyuncu bilgisayarında rahat çalışacak hafif araçlar.
-- Her parça değiştirilebilir: OCR motoru, çeviri motoru, opsiyonel yerel AI.
-- Opsiyonel AI kuruluysa: daha iyi çeviri ve diyaloglar hakkında soru sorabilme.
-
-## Kurulum (geliştirme)
-
-Python 3.11 veya üzeri gerekir.
+## Kurulum
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements-dev.txt
-python -m ps5_translator
+git clone https://github.com/tremirhankaya/ps5-game-assistant-translator.git
+cd ps5-game-assistant-translator
+.\setup.bat
 ```
 
-## Çeviri motoru: DeepL (varsayılan)
+`setup.bat` gerekirse Python 3.13'ü kurar, sanal ortamı oluşturur ve paketleri yükler. Python 3.13 kullanılır, çünkü yazı okuma için gereken onnxruntime daha yeni sürümleri henüz desteklemiyor.
 
-1. [deepl.com/pro-api](https://www.deepl.com/pro-api) adresinden ücretsiz **DeepL API Free** hesabı aç (ayda 500.000 karakter).
+Uygulamayı açmak için: `.\run.bat`
+
+## Kullanım
+
+### 1. Çeviri yöntemini seç (bir kez)
+
+**Ayarlar** düğmesine bas ve ikisinden birini seç:
+
+| | DeepL (önerilen) | Yerel model (OPUS-MT) |
+|---|---|---|
+| Çeviri kalitesi | Daha iyi; önceki repliği bağlam olarak kullanır | Daha düşük; deyim ve argoda daha çok hata yapar |
+| Gereken | Ücretsiz API anahtarı, internet | Bir kez yaklaşık 470 MB indirme |
+| Sınır | Ayda 500.000 karakter | Yok |
+| Gizlilik | Altyazı metinleri DeepL'e gönderilir | Hiçbir metin bilgisayardan çıkmaz |
+
+**DeepL için:**
+1. [deepl.com/pro-api](https://www.deepl.com/pro-api) adresinden ücretsiz **DeepL API Free** hesabı aç.
 2. Hesap sayfasından API anahtarını kopyala (sonu `:fx` ile biter).
-3. Uygulamada **Ayarlar** düğmesine bas ve anahtarı yapıştır.
+3. Ayarlar'da DeepL'i seç, anahtarı yapıştır ve kaydet. Sağ üstte "DeepL kotası: ..." yazısını görüyorsan anahtar çalışıyor.
 
-Anahtar Windows Kimlik Bilgisi Yöneticisi'nde saklanır, proje klasörüne yazılmaz. İstersen `DEEPL_API_KEY` ortam değişkeni de kullanılabilir.
+**Yerel model için:** Ayarlar'da "Yerel model"i seç ve kaydet. Model ilk seferde indirilir; bu birkaç dakika sürebilir.
 
-Her çeviride bir önceki replik DeepL'e bağlam olarak gönderilir; bu, "he/it" gibi belirsiz kelimelerin doğru çevrilmesine yardım eder ve kotadan düşmez.
+Alttaki kutuya İngilizce bir cümle yazıp Enter'a basarak çeviriyi deneyebilirsin.
 
-## Yerel çeviri modelleri (opsiyonel)
+### 2. Kamerayı yerleştir
 
-İnternet ve hesap gerektirmeden çeviri için [Ollama](https://ollama.com) kur ve modelleri bir kez indir:
+- Kamerayı masaya, monitörün altına, altyazıların çıktığı bölgeye bakacak şekilde koy. Böylece oyun oynarken seni rahatsız etmez.
+- Kamera ne kadar yakın ve ne kadar az eğik bakarsa yazı o kadar iyi okunur.
+- Kamerayı sabitle: yerinden oynarsa ayarı yeniden yapman gerekir.
 
-```powershell
-ollama pull kaelri/hy-mt2:1.8b-q4_K_M   # Hy-MT2 1.8B: sadece çeviri, ~1-2 GB
-ollama pull gemma4:e2b                  # Gemma 4 E2B: genel model, ~7 GB indirme
-```
+### 3. Altyazı alanını ayarla (bir kez)
 
-Uygulamada motor listesinden seçmen yeterli. Motorları aynı cümlelerle karşılaştırmak için:
+**Kamera** düğmesine bas.
 
-```powershell
-python tools/compare_engines.py
-```
+1. **Kamera:** Görüntü gelmiyorsa ya da yanlış kamera açıldıysa üstten başka bir numara seç. NVIDIA Broadcast ve OBS gibi programlar da sanal kamera ekler.
+2. **Kamera neyi görüyor:** Kamera monitörün tamamını görüyorsa "Ekranın tamamını", yalnızca alt kısmını görüyorsa "Ekranın alt kısmını" seç.
+3. **Köşeler:** Soldaki görüntüde 4 köşeye tıkla.
+   - "Ekranın tamamı" modunda monitör ekranının 4 köşesi.
+   - "Ekranın alt kısmı" modunda, ekranın görünen kısmında kenarlara paralel bir dikdörtgen: alt köşeler ekranın alt kenarında, üst köşeler altyazının biraz üstünde.
+   - Köşeleri sürükleyerek düzeltebilirsin. Sarı ızgara ekranın kenarlarına paralel durmalı.
+4. **Altyazı alanı:** Sağdaki düzleştirilmiş görüntüde altyazının çıktığı alanı fareyle sürükleyerek seç. İki satırlık altyazılar da sığacak kadar yüksek tut.
+5. **Otomatik ayarla:** Ekranda bir altyazı görünürken bu düğmeye bas. Uygulama eğimi, yüksekliği ve alanı kendisi ayarlar. Birkaç saniye ile bir dakika arası sürebilir.
 
-## Notlar
+Pencerenin altındaki "OCR okudu: ..." satırı altyazıyı doğru gösteriyorsa ayar tamamdır. Ayarlar kaydedilir; kamera yerinden oynamadıkça tekrar yapman gerekmez.
 
-- Varsayılan Google çeviri motoru resmi bir API değildir; çok sık istekte geçici olarak engellenebilir.
-- Yerel modeller uygulamayla birlikte dağıtılmaz. Kullanıcı kendisi indirir ve modelin lisansına uymaktan kendisi sorumludur.
-- Bu proje Sony Interactive Entertainment ile bağlantılı değildir. "PlayStation" ve "PS5" Sony'nin ticari markalarıdır.
+### 4. Canlı çeviriyi başlat
 
-## Belgeler
+Ana pencerede **Canlı çeviri** kutusunu işaretle. Kamera penceresini kapatabilirsin; arka planda çalışmaya devam eder. Durdurmak için kutunun işaretini kaldır.
 
-- [Kararlar](docs/kararlar.md)
-- [Test kaydı](docs/test-log.md)
+### 5. Çeviriyi göster
 
-## Lisans
+- **Tam ekran** (F11): Çevirileri, uygulama penceresinin bulunduğu monitörde tam ekran gösterir. Önce pencereyi ikinci monitöre sürükle. Çıkmak için Esc ya da çift tık.
+- **Telefonda göster:** Düğmeye bas ve çıkan QR kodu telefonun kamerasıyla okut. Çeviriler telefonun tarayıcısında açılır; uygulama kurmak gerekmez. Telefon ve bilgisayar aynı Wi-Fi ağında olmalı.
+- **Geçmiş:** Tam ekranda H tuşu ya da "Geçmiş" düğmesi, o ana kadarki tüm çevirileri listeler; arama kutusuyla eski bir repliği bulabilirsin. Telefondaki sayfada da aynı düğme var.
 
-MIT
+## Sorun giderme
+
+| Sorun | Çözüm |
+|---|---|
+| Kamera görüntüsü gelmiyor | Üstten başka bir kamera numarası seç. Kamerayı kullanan başka programları kapat. |
+| "OCR yazı görmedi" ya da yanlış okuyor | Altyazı ekrandayken **Otomatik ayarla**'ya bas. Olmazsa kamerayı yaklaştır, açıyı azalt, köşeleri yeniden seç. |
+| Çeviri gelmiyor | **Ayarlar**'dan DeepL anahtarını kontrol et ya da yerel modele geç. Açıklama panelindeki hata mesajına bak. |
+| Telefonda sayfa açılmıyor | İkisi aynı Wi-Fi'da mı? Windows Güvenlik Duvarı'nda uygulamaya "Özel ağlar" için izin ver. |
+| Telefonun ekranı kapanıyor | Telefonun ayarlarından ekran zaman aşımını uzat. |
+| Telefonda "Tam ekran" düğmesi yok | iPhone'lar buna izin vermiyor. Safari'de Paylaş > "Ana Ekrana Ekle" ile aynı sonucu alırsın. |
+
+## Güvenlik ve gizlilik
+
+- **DeepL anahtarı** yalnızca senin bilgisayarında, Windows Kimlik Bilgisi Yöneticisi'nde saklanır. Proje klasörüne ya da ayar dosyasına yazılmaz ve yalnızca DeepL'e gönderilir. Anahtarını kimseyle paylaşma.
+- **Kamera görüntüleri** diske kaydedilmez ve hiçbir yere gönderilmez. DeepL seçiliyse internete çıkan tek şey, çevrilmek üzere DeepL'e gönderilen altyazı metinleridir. DeepL'in ücretsiz API'si gönderilen metinleri saklayabilir; ayrıntı için DeepL'in kendi koşullarına bak. Yerel model seçiliyse hiçbir metin bilgisayardan çıkmaz.
+- **Yerel model** ilk kullanımda Hugging Face'ten indirilir (`ooeoeo/opus-mt-tc-big-en-tr-ct2-float16`). İndirilen sürüm kodda sabitlenmiştir; depo sonradan değişse bile aynı dosyalar indirilir.
+- **Telefonda göster** özelliği varsayılan olarak kapalıdır. Açıldığında bilgisayar yerel ağda şifresiz (http) bir sayfa yayınlar. Sayfada yalnızca çevrilmiş altyazılar bulunur ve adresteki rastgele kod olmadan açılamaz. Yine de aynı ağdaki biri trafiği dinleyerek altyazıları görebilir. **Bu özelliği yalnızca güvendiğin ev ağında kullan; ortak ağlarda (yurt, kafe, iş yeri) açma.**
+- **Ekran görüntüsü ya da video paylaşırken** "Telefonda göster" penceresindeki QR kodu ve adresi gösterme; gizli kodu ve yerel IP adresini içerir.
+- **Paket sürümleri** henüz sabitlenmedi: `setup.bat` her kurulumda paketlerin güncel sürümlerini indirir.
+
+## Bilinen sınırlar
+
+- Yalnızca Windows; yalnızca İngilizce → Türkçe için denendi.
+- Okuma kalitesi kameranın konumuna, çözünürlüğüne ve ışığa bağlıdır.
+- Çeviri, altyazı ekrana geldikten kısa bir süre sonra görünür (okuma + çeviri süresi).
+- Çeviri geçmişi uygulama kapanınca silinir.
+
+## Lisans ve teşekkür
+
+Uygulamanın kodu MIT lisanslıdır.
+
+Yerel çeviri modeli uygulamayla birlikte dağıtılmaz. Kaynağı, Helsinki Üniversitesi Dil Teknolojileri Araştırma Grubu'nun [OPUS-MT](https://github.com/Helsinki-NLP/Opus-MT) projesindeki `opus-mt-tc-big-en-tr` modelidir (CC BY 4.0); CTranslate2 biçimine dönüştürülmüş hâli kullanılır. Yazı okuma için [RapidOCR](https://github.com/RapidAI/RapidOCR) kullanılır.
