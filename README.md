@@ -25,16 +25,18 @@ PS5 kablolaması değişmez: konsol doğrudan monitöre bağlı kalır, oyun gö
 - Her parça değiştirilebilir: OCR motoru, çeviri motoru, opsiyonel yerel AI.
 - Opsiyonel AI kuruluysa: daha iyi çeviri ve diyaloglar hakkında soru sorabilme.
 
-## Kurulum (geliştirme)
+## Kurulum
 
-Python 3.11 veya üzeri gerekir.
+Repoyu indir ve `setup.bat` dosyasını çalıştır. Gerekirse Python 3.13'ü kurar, sanal ortamı oluşturur ve paketleri yükler. Sonra uygulamayı `run.bat` ile aç.
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements-dev.txt
-python -m ps5_translator
+git clone https://github.com/tremirhankaya/ps5-game-assistant-translator.git
+cd ps5-game-assistant-translator
+.\setup.bat
+.\run.bat
 ```
+
+Python 3.13 kullanılır, çünkü RapidOCR'ın ihtiyaç duyduğu onnxruntime daha yeni sürümleri henüz desteklemiyor.
 
 ## Çeviri motoru: DeepL (varsayılan)
 
