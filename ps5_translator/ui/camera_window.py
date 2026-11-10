@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import settings
-from ..ocr import OcrResult, available_ocr_engines
+from ..ocr import OcrResult, RapidOcrEngine
 from ..vision import Calibration
 from ..vision.autotune import AutoTuneReport, auto_calibrate
 from ..vision.calibration import FULL, PARTIAL
@@ -158,8 +158,9 @@ class CameraWindow(QWidget):
     calibration_changed = Signal(object)
     ocr_read = Signal(object)  # OcrResult, every time the subtitle area was read
 
-    def __init__(self, log: Callable[[str, str], None]) -> None:
+    def __init__(self, log: Callable[[str, str], None], ocr_factory=RapidOcrEngine) -> None:
         super().__init__()
+        self._ocr_factory = ocr_factory
         self.setWindowTitle("Kamera ve altyazı bölgesi")
         self.resize(1300, 850)
         self._log = log
@@ -173,7 +174,6 @@ class CameraWindow(QWidget):
         self._band_preview: tuple[float, float, float, float] | None = None
 
         self._ocr_runner = JobRunner()
-        self._ocr_engines = available_ocr_engines()
         self.ocr_engine = None
         self._ocr_busy = False
         self._auto_running = False
@@ -257,26 +257,14 @@ class CameraWindow(QWidget):
         self.crop_view = _FrameView(400, 120)
         layout.addWidget(self.crop_view, stretch=1)
 
-        ocr_row = QHBoxLayout()
-        ocr_row.addWidget(QLabel("OCR motoru:"))
-        self.ocr_box = QComboBox()
-        for engine in self._ocr_engines:
-            self.ocr_box.addItem(engine.name)
-        saved = config.get("ocr_engine")
-        names = [e.name for e in self._ocr_engines]
-        self.ocr_box.setCurrentIndex(names.index(saved) if saved in names else 0)
-        self.ocr_box.currentIndexChanged.connect(self._select_ocr)
-        ocr_row.addWidget(self.ocr_box)
-        self.ocr_label = QLabel("OCR hazırlanıyor...")
+        self.ocr_label = _caption("OCR hazırlanıyor...")
         self.ocr_label.setFont(QFont("Segoe UI", 12))
-        self.ocr_label.setWordWrap(True)
-        ocr_row.addWidget(self.ocr_label, stretch=1)
-        layout.addLayout(ocr_row)
+        layout.addWidget(self.ocr_label)
 
         self._ocr_timer = QTimer(self)
         self._ocr_timer.timeout.connect(self._read_subtitles)
         self._ocr_timer.start(OCR_INTERVAL_MS)
-        self._select_ocr(self.ocr_box.currentIndex())
+        self._load_ocr()
 
         self._update_hint()
         self._start_camera(camera_index)
@@ -432,29 +420,21 @@ class CameraWindow(QWidget):
 
     # -- OCR
 
-    def _select_ocr(self, index: int) -> None:
-        engine_cls = self._ocr_engines[index]
-        self.ocr_engine = None
-        self.ocr_label.setText(f"{engine_cls.name} hazırlanıyor...")
-        settings.save_config(ocr_engine=engine_cls.name)
-        self._ocr_runner.run(engine_cls, lambda outcome: self._ocr_ready(engine_cls, outcome))
+    def _load_ocr(self) -> None:
+        self._ocr_runner.run(self._ocr_factory, self._ocr_ready)
 
-    def _ocr_ready(self, engine_cls, outcome) -> None:
+    def _ocr_ready(self, outcome) -> None:
         ok, value = outcome
         if not ok:
-            self.ocr_label.setText(f"{engine_cls.name} kullanılamıyor.")
-            self._log(
-                f"{engine_cls.name} başlatılamadı: {value}",
-                "Üstten diğer OCR motorunu seçebilirsin.",
-            )
+            self.ocr_label.setText("OCR kullanılamıyor.")
+            self._log(f"OCR başlatılamadı: {value}")
             return
         self.ocr_engine = value
-        why = (
-            "Windows'un kendi OCR'ı: ek model indirmez, hızlıdır. Ne kadar emin olduğunu söylemez."
-            if not value.gives_scores
-            else "RapidOCR her satır için bir güven puanı verir; otomatik ayar bu puanı kullanır."
+        self._log(
+            f"OCR hazır: {value.name}.",
+            "OCR, görüntüdeki yazıyı metne çevirir (henüz İngilizce). Her satır için bir güven puanı da verir; "
+            "otomatik ayar bu puanı kullanır.",
         )
-        self._log(f"OCR motoru hazır: {value.name}.", why)
 
     def _read_subtitles(self) -> None:
         if self._auto_running or self._ocr_busy or self.ocr_engine is None or self.latest_frame is None:

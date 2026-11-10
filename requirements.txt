@@ -4,14 +4,6 @@ deepl>=1.33
 keyring>=25
 opencv-python-headless>=4.9
 numpy>=1.26
-# OCR: Windows OCR (built into Windows, works on every Python version)
-winrt-runtime; sys_platform == "win32"
-winrt-Windows.Foundation; sys_platform == "win32"
-winrt-Windows.Foundation.Collections; sys_platform == "win32"
-winrt-Windows.Globalization; sys_platform == "win32"
-winrt-Windows.Graphics.Imaging; sys_platform == "win32"
-winrt-Windows.Media.Ocr; sys_platform == "win32"
-winrt-Windows.Storage.Streams; sys_platform == "win32"
-# OCR: RapidOCR (gives confidence scores; onnxruntime has no wheels for newer Python yet)
-rapidocr>=3.4; python_version < "3.15"
-onnxruntime>=1.20; python_version < "3.15"
+# OCR: RapidOCR (onnxruntime has no builds for Python newer than 3.13 yet; setup.bat installs 3.13)
+rapidocr>=3.4
+onnxruntime>=1.20
