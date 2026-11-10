@@ -6,6 +6,12 @@ Oyun oynarken diyalogları daha rahat takip edebilmek için Claude ile konuşara
 
 > Resmî bir ürün değildir. Sony Interactive Entertainment ile bağlantısı yoktur. “PlayStation” ve “PS5”, Sony'nin ticari markalarıdır.
 
+
+
+https://github.com/user-attachments/assets/0986b8df-61b4-43b3-8f5b-67ca84876136
+
+
+
 ## Başlamadan önce
 
 Gerekenler:
@@ -133,6 +139,9 @@ Alttaki **“OCR okudu: …”** satırında oyundaki İngilizce altyazıyı do�
 Yazılar hâlâ basık görünüyorsa “Ekranın alt kısmını” modundaki **Yükseklik düzeltme** kaydırıcısını deneyebilirsin. Yanlış alan seçtiysen **Altyazı alanını sıfırla** düğmesiyle yeniden seç.
 
 Kamera ve alan ayarları kaydedilir. Kamera yerinden oynamadıkça her açılışta bunları tekrarlamana gerek yok.
+
+<img width="1883" height="1022" alt="image" src="https://github.com/user-attachments/assets/bf43ba86-0660-47cc-b081-71a936f0e4ff" />
+
 
 ## 6. Canlı çeviriyi başlat
 
