@@ -44,3 +44,23 @@ def test_brief_flicker_does_not_resend():
 def test_noise_is_ignored():
     f = StabilityFilter()
     assert feed_all(f, [".", "1", " - "]) == [None, None, None]
+
+
+def test_confident_finished_sentence_is_sent_on_first_read():
+    f = StabilityFilter()
+    assert f.feed("Where is the key?", score=0.98) == "Where is the key?"
+    assert f.sent_fast
+    assert f.feed("Where is the key?", score=0.98) is None  # not sent twice
+
+
+def test_fast_path_needs_confidence_and_sentence_end():
+    f = StabilityFilter()
+    assert f.feed("Where is the key?", score=0.80) is None
+    assert f.feed("We need to", score=0.99) is None
+
+
+def test_first_seen_time_is_kept_for_delay_measurement():
+    f = StabilityFilter()
+    f.feed("We need to go", when=10.0)
+    assert f.feed("We need to go", when=10.4) == "We need to go"
+    assert f.sent_first_seen == 10.0

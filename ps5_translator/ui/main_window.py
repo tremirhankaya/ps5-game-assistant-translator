@@ -5,6 +5,7 @@ the same pipeline automatically.
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
@@ -268,17 +269,25 @@ class MainWindow(QMainWindow):
     def _on_ocr(self, result) -> None:
         if not self.live_toggle.isChecked() or self._pipeline is None:
             return
-        text = self._stability.feed(result.text)
+        text = self._stability.feed(result.text, result.score, result.captured_at)
         if text is None:
             return
         score = f", güven {result.score:.2f}" if result.score is not None else ""
-        self._write_log(
-            f"OCR okudu ve yazı sabitlendi: \"{text}\" ({result.ms:.0f} ms{score})",
-            "Aynı yazı art arda iki kez okundu, yani altyazı tamamlandı ve kamera titremesi değil. "
-            "Yarım cümleleri çevirmemek ve kotayı boşa harcamamak için bunu bekliyoruz.",
-        )
+        if self._stability.sent_fast:
+            self._write_log(
+                f"OCR okudu, hemen gönderildi: \"{text}\" ({result.ms:.0f} ms{score})",
+                "OCR çok emin ve cümle nokta/soru işaretiyle bitiyor, yani büyük ihtimalle tamamlanmış. "
+                "İkinci okumayı beklemeden çeviriye gönderiyoruz; bu gecikmeyi kısaltır.",
+            )
+        else:
+            self._write_log(
+                f"OCR okudu ve yazı sabitlendi: \"{text}\" ({result.ms:.0f} ms{score})",
+                "Aynı yazı art arda iki kez okundu, yani altyazı tamamlandı ve kamera titremesi değil. "
+                "Yarım cümleleri çevirmemek ve kotayı boşa harcamamak için bunu bekliyoruz.",
+            )
+        first_seen = self._stability.sent_first_seen
         job = _TranslateJob(self._pipeline, text)
-        job.signals.done.connect(self._show_result)
+        job.signals.done.connect(lambda r: self._show_result(r, first_seen))
         self._start(job)
 
     def closeEvent(self, event) -> None:
@@ -330,9 +339,14 @@ class MainWindow(QMainWindow):
         job.signals.done.connect(self._show_result)
         self._start(job)
 
-    def _show_result(self, result: Result | None) -> None:
+    def _show_result(self, result: Result | None, first_seen: float | None = None) -> None:
         if result is None:
             return
+        if first_seen and not result.skipped and not result.error:
+            total = (time.monotonic() - first_seen) * 1000
+            self._write_log(
+                f"Toplam gecikme: {total:.0f} ms (kameranın altyazıyı ilk gördüğü andan çevirinin ekrana gelmesine kadar)."
+            )
         for event in result.events:
             exp = explain(event)
             self._write_log(exp.what, exp.why)

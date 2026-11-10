@@ -34,7 +34,7 @@ from ..vision.autotune import AutoTuneReport, auto_calibrate
 from ..vision.calibration import FULL, PARTIAL
 from .jobs import JobRunner
 
-OCR_INTERVAL_MS = 300  # how often the subtitle area is read (skipped while a read is still running)
+OCR_INTERVAL_MS = 40  # the subtitle area is read again as soon as the previous read is done
 
 DRAG_DISTANCE = 0.03  # how close (as a fraction of the image) a click must be to grab a corner
 YELLOW = (0, 200, 255)
@@ -48,7 +48,7 @@ class CameraThread(QThread):
     opened = Signal(int, int, str)
     failed = Signal(str)
 
-    def __init__(self, index: int, width: int = 1920, height: int = 1080, preview_fps: int = 15) -> None:
+    def __init__(self, index: int, width: int = 1920, height: int = 1080, preview_fps: int = 30) -> None:
         super().__init__()
         self.index = index
         self.width = width
@@ -177,6 +177,7 @@ class CameraWindow(QWidget):
         self.ocr_engine = None
         self._ocr_busy = False
         self._auto_running = False
+        self._frame_time = 0.0
         self.keep_running = False  # live translation: keep camera and OCR working while the window is closed
         self._calibration_version = 0  # increases on every change; old OCR results are ignored
 
@@ -315,6 +316,9 @@ class CameraWindow(QWidget):
 
     def _on_frame(self, frame: np.ndarray) -> None:
         self.latest_frame = frame
+        self._frame_time = time.monotonic()
+        if not self.isVisible():
+            return  # live translation with the window closed: do not spend CPU on drawing the preview
         calib = self.calibration
         h, w = frame.shape[:2]
 
@@ -445,7 +449,14 @@ class CameraWindow(QWidget):
         self._ocr_busy = True
         engine = self.ocr_engine
         version = self._calibration_version
-        self._ocr_runner.run(lambda: engine.read(crop), lambda outcome: self._ocr_done(outcome, version))
+        captured_at = self._frame_time
+
+        def read():
+            result = engine.read(crop)
+            result.captured_at = captured_at
+            return result
+
+        self._ocr_runner.run(read, lambda outcome: self._ocr_done(outcome, version))
 
     def _ocr_done(self, outcome, version: int) -> None:
         self._ocr_busy = False

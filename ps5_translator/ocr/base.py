@@ -40,6 +40,7 @@ class OcrResult:
     lines: list[OcrLine] = field(default_factory=list)
     ms: float = 0.0
     engine: str = ""
+    captured_at: float = 0.0  # time.monotonic() of the camera frame that was read
 
     @property
     def text(self) -> str:
