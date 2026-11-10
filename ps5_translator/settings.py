@@ -6,10 +6,33 @@ The DEEPL_API_KEY environment variable is also accepted.
 """
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 
 SERVICE = "ps5-game-assistant-translator"
 _DEEPL_USER = "deepl-api-key"
+
+
+def config_path() -> Path:
+    base = os.environ.get("APPDATA") or str(Path.home())
+    return Path(base) / SERVICE / "config.json"
+
+
+def load_config() -> dict:
+    """Non-secret settings (camera index, subtitle region, ...)."""
+    try:
+        return json.loads(config_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_config(**changes) -> None:
+    config = load_config()
+    config.update(changes)
+    path = config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def _keyring():
