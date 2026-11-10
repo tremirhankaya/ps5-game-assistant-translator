@@ -6,6 +6,8 @@ currently supports Python up to 3.13.
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 from .base import OcrEngine, OcrLine
@@ -29,8 +31,17 @@ class RapidOcrEngine(OcrEngine):
         # A subtitle band is short and very wide, so it became huge and one read took
         # seconds. 256 px keeps small or blurry text readable and is several times faster.
         # The band is already upright, so the "is the text upside down" check is skipped.
+        # OCR runs continuously, so it must not take every CPU core: translation and
+        # the camera need some too.
+        threads = max(1, min(4, (os.cpu_count() or 2) // 2))
         self._engine = RapidOCR(
-            params={"Det.limit_type": "min", "Det.limit_side_len": 256, "Global.use_cls": False}
+            params={
+                "Det.limit_type": "min",
+                "Det.limit_side_len": 256,
+                "Global.use_cls": False,
+                "EngineConfig.onnxruntime.intra_op_num_threads": threads,
+                "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+            }
         )
 
     def recognize(self, image: np.ndarray) -> list[OcrLine]:

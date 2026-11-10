@@ -73,7 +73,10 @@ class OpusMtEngine(Engine):
                     f"Model indirilemedi ({MODEL_SIZE_MB} MB, internet gerekir): {exc}"
                 ) from exc
         path = model_dir()
-        translator = ctranslate2.Translator(str(path), device="cpu", compute_type="int8")
+        # One thread on purpose. OCR runs all the time on the other CPU cores; when the
+        # translator also spread over several cores, the two fought for them and a single
+        # line sometimes took many seconds. One thread is steady and fast enough for a subtitle.
+        translator = ctranslate2.Translator(str(path), device="cpu", compute_type="int8", intra_threads=1)
         source_sp = sentencepiece.SentencePieceProcessor(model_file=str(path / "source.spm"))
         target_sp = sentencepiece.SentencePieceProcessor(model_file=str(path / "target.spm"))
         return translator, source_sp, target_sp
