@@ -14,7 +14,7 @@ from typing import Callable
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import QThread, Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QImage, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -28,8 +28,12 @@ from PySide6.QtWidgets import (
 )
 
 from .. import settings
+from ..ocr import OcrResult, available_ocr_engines
 from ..vision import Calibration
 from ..vision.calibration import FULL, PARTIAL
+from .jobs import JobRunner
+
+OCR_INTERVAL_MS = 700  # how often the subtitle area is read
 
 DRAG_DISTANCE = 0.03  # how close (as a fraction of the image) a click must be to grab a corner
 YELLOW = (0, 200, 255)
@@ -151,6 +155,7 @@ def _caption(text: str = "") -> QLabel:
 
 class CameraWindow(QWidget):
     calibration_changed = Signal(object)
+    ocr_read = Signal(object)  # OcrResult, every time the subtitle area was read
 
     def __init__(self, log: Callable[[str, str], None]) -> None:
         super().__init__()
@@ -165,6 +170,11 @@ class CameraWindow(QWidget):
         self._dragging: int | None = None
         self._band_start: tuple[float, float] | None = None
         self._band_preview: tuple[float, float, float, float] | None = None
+
+        self._ocr_runner = JobRunner()
+        self._ocr_engines = available_ocr_engines()
+        self.ocr_engine = None
+        self._ocr_busy = False
 
         config = settings.load_config()
         self.calibration = Calibration.from_dict(config.get("calibration"))
@@ -239,6 +249,27 @@ class CameraWindow(QWidget):
         self.crop_view = _FrameView(400, 120)
         layout.addWidget(self.crop_view, stretch=1)
 
+        ocr_row = QHBoxLayout()
+        ocr_row.addWidget(QLabel("OCR motoru:"))
+        self.ocr_box = QComboBox()
+        for engine in self._ocr_engines:
+            self.ocr_box.addItem(engine.name)
+        saved = config.get("ocr_engine")
+        names = [e.name for e in self._ocr_engines]
+        self.ocr_box.setCurrentIndex(names.index(saved) if saved in names else 0)
+        self.ocr_box.currentIndexChanged.connect(self._select_ocr)
+        ocr_row.addWidget(self.ocr_box)
+        self.ocr_label = QLabel("OCR hazırlanıyor...")
+        self.ocr_label.setFont(QFont("Segoe UI", 12))
+        self.ocr_label.setWordWrap(True)
+        ocr_row.addWidget(self.ocr_label, stretch=1)
+        layout.addLayout(ocr_row)
+
+        self._ocr_timer = QTimer(self)
+        self._ocr_timer.timeout.connect(self._read_subtitles)
+        self._ocr_timer.start(OCR_INTERVAL_MS)
+        self._select_ocr(self.ocr_box.currentIndex())
+
         self._update_hint()
         self._start_camera(camera_index)
 
@@ -273,7 +304,9 @@ class CameraWindow(QWidget):
 
     def shutdown(self, timeout_ms: int = 8000) -> None:
         """Stop all camera threads and wait for them (used when the app closes)."""
+        self._ocr_timer.stop()
         self._stop_camera()
+        self._ocr_runner.wait()
         for thread in list(self._closing_threads):
             thread.wait(timeout_ms)
 
@@ -389,6 +422,56 @@ class CameraWindow(QWidget):
             )
         self._update_hint()
 
+    # -- OCR
+
+    def _select_ocr(self, index: int) -> None:
+        engine_cls = self._ocr_engines[index]
+        self.ocr_engine = None
+        self.ocr_label.setText(f"{engine_cls.name} hazırlanıyor...")
+        settings.save_config(ocr_engine=engine_cls.name)
+        self._ocr_runner.run(engine_cls, lambda outcome: self._ocr_ready(engine_cls, outcome))
+
+    def _ocr_ready(self, engine_cls, outcome) -> None:
+        ok, value = outcome
+        if not ok:
+            self.ocr_label.setText(f"{engine_cls.name} kullanılamıyor.")
+            self._log(
+                f"{engine_cls.name} başlatılamadı: {value}",
+                "Üstten diğer OCR motorunu seçebilirsin.",
+            )
+            return
+        self.ocr_engine = value
+        why = (
+            "Windows'un kendi OCR'ı: ek model indirmez, hızlıdır. Ne kadar emin olduğunu söylemez."
+            if not value.gives_scores
+            else "RapidOCR her satır için bir güven puanı verir; otomatik ayar bu puanı kullanır."
+        )
+        self._log(f"OCR motoru hazır: {value.name}.", why)
+
+    def _read_subtitles(self) -> None:
+        if self._ocr_busy or self.ocr_engine is None or self.latest_frame is None:
+            return
+        crop = self.calibration.subtitle_crop(self.latest_frame)
+        if crop is None:
+            return
+        self._ocr_busy = True
+        engine = self.ocr_engine
+        self._ocr_runner.run(lambda: engine.read(crop), self._ocr_done)
+
+    def _ocr_done(self, outcome) -> None:
+        self._ocr_busy = False
+        ok, value = outcome
+        if not ok:
+            self.ocr_label.setText(f"OCR hatası: {value}")
+            return
+        result: OcrResult = value
+        if result.text:
+            score = f", güven {result.score:.2f}" if result.score is not None else ""
+            self.ocr_label.setText(f"OCR okudu: \"{result.text}\"  ({result.ms:.0f} ms{score})")
+        else:
+            self.ocr_label.setText(f"OCR yazı görmedi ({result.ms:.0f} ms)")
+        self.ocr_read.emit(result)
+
     # -- partial mode
 
     def _mode_changed(self, index: int) -> None:
@@ -480,8 +563,10 @@ class CameraWindow(QWidget):
     def showEvent(self, event) -> None:
         if self._thread is None:  # reopened after being closed
             self._start_camera(self.camera_box.currentIndex())
+        self._ocr_timer.start(OCR_INTERVAL_MS)
         super().showEvent(event)
 
     def closeEvent(self, event) -> None:
+        self._ocr_timer.stop()
         self._stop_camera()  # camera keeps closing in the background; the app waits for it on exit
         super().closeEvent(event)
