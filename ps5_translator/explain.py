@@ -44,7 +44,7 @@ _TEMPLATES: dict[str, Explanation] = {
     ),
     "engine_error": Explanation(
         what="{engine} hata verdi: {error}",
-        why="İnternet kesilmiş ya da servis geçici olarak engellemiş olabilir. "
+        why="İnternet kesilmiş, anahtar geçersiz ya da aylık kota dolmuş olabilir. "
         "Uygulama durmaz; aynı cümle tekrar gelirse yeniden denenir.",
     ),
 }

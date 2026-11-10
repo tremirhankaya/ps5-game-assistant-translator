@@ -1,11 +1,11 @@
-from .engines import EchoEngine, Engine, GoogleEngine, available_engines
+from .deepl_engine import DeepLEngine
+from .engines import EchoEngine, Engine
 from .pipeline import Event, Result, TranslationPipeline, normalize
 
 __all__ = [
     "Engine",
-    "GoogleEngine",
+    "DeepLEngine",
     "EchoEngine",
-    "available_engines",
     "TranslationPipeline",
     "Result",
     "Event",

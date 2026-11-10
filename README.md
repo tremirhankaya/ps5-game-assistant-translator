@@ -22,8 +22,7 @@ PS5 kablolaması değişmez: konsol doğrudan monitöre bağlı kalır, oyun gö
 
 - Sadece Windows.
 - Ortalama bir oyuncu bilgisayarında rahat çalışacak hafif araçlar.
-- Her parça değiştirilebilir: OCR motoru, çeviri motoru, opsiyonel yerel AI.
-- Opsiyonel AI kuruluysa: daha iyi çeviri ve diyaloglar hakkında soru sorabilme.
+- Tek ve sade bir kurulum: okuma için RapidOCR, çeviri için DeepL.
 
 ## Kurulum
 
@@ -38,7 +37,7 @@ cd ps5-game-assistant-translator
 
 Python 3.13 kullanılır, çünkü RapidOCR'ın ihtiyaç duyduğu onnxruntime daha yeni sürümleri henüz desteklemiyor.
 
-## Çeviri motoru: DeepL (varsayılan)
+## Çeviri: DeepL
 
 1. [deepl.com/pro-api](https://www.deepl.com/pro-api) adresinden ücretsiz **DeepL API Free** hesabı aç (ayda 500.000 karakter).
 2. Hesap sayfasından API anahtarını kopyala (sonu `:fx` ile biter).
@@ -48,25 +47,8 @@ Anahtar Windows Kimlik Bilgisi Yöneticisi'nde saklanır, proje klasörüne yaz�
 
 Her çeviride bir önceki replik DeepL'e bağlam olarak gönderilir; bu, "he/it" gibi belirsiz kelimelerin doğru çevrilmesine yardım eder ve kotadan düşmez.
 
-## Yerel çeviri modelleri (opsiyonel)
-
-İnternet ve hesap gerektirmeden çeviri için [Ollama](https://ollama.com) kur ve modelleri bir kez indir:
-
-```powershell
-ollama pull kaelri/hy-mt2:1.8b-q4_K_M   # Hy-MT2 1.8B: sadece çeviri, ~1-2 GB
-ollama pull gemma4:e2b                  # Gemma 4 E2B: genel model, ~7 GB indirme
-```
-
-Uygulamada motor listesinden seçmen yeterli. Motorları aynı cümlelerle karşılaştırmak için:
-
-```powershell
-python tools/compare_engines.py
-```
-
 ## Notlar
 
-- Varsayılan Google çeviri motoru resmi bir API değildir; çok sık istekte geçici olarak engellenebilir.
-- Yerel modeller uygulamayla birlikte dağıtılmaz. Kullanıcı kendisi indirir ve modelin lisansına uymaktan kendisi sorumludur.
 - Bu proje Sony Interactive Entertainment ile bağlantılı değildir. "PlayStation" ve "PS5" Sony'nin ticari markalarıdır.
 
 ## Belgeler

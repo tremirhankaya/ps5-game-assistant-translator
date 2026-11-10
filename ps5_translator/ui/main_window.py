@@ -5,14 +5,12 @@ the same pipeline automatically.
 """
 from __future__ import annotations
 
-import time
 from datetime import datetime
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -27,7 +25,7 @@ from PySide6.QtWidgets import (
 from .. import settings
 from ..explain import explain
 from ..ocr.stability import StabilityFilter
-from ..translation import Result, TranslationPipeline, available_engines
+from ..translation import DeepLEngine, Result, TranslationPipeline
 
 
 class _Signals(QObject):
@@ -63,8 +61,9 @@ class _CallJob(QRunnable):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, engine_factory=DeepLEngine) -> None:
         super().__init__()
+        self._engine_factory = engine_factory
         self.setWindowTitle("PS5 Game Assistant Translator")
         self.resize(1000, 700)
 
@@ -72,14 +71,13 @@ class MainWindow(QMainWindow):
         self._pool = QThreadPool()
         self._jobs: set[QRunnable] = set()  # keep jobs alive until they report back
         self._pool.setMaxThreadCount(1)
-        self._engines = available_engines()
         self._pipeline: TranslationPipeline | None = None
         self._translated_since_usage = 0
         self._camera_window = None
         self._stability = StabilityFilter()
 
         self._build_ui()
-        self._select_engine(0)
+        self._load_engine()
 
     # ------------------------------------------------------------- layout
 
@@ -90,12 +88,6 @@ class MainWindow(QMainWindow):
         layout.setSpacing(12)
 
         top = QHBoxLayout()
-        top.addWidget(QLabel("Çeviri motoru:"))
-        self.engine_box = QComboBox()
-        for engine in self._engines:
-            self.engine_box.addItem(engine.name)
-        self.engine_box.currentIndexChanged.connect(self._select_engine)
-        top.addWidget(self.engine_box)
         camera_button = QPushButton("Kamera")
         camera_button.clicked.connect(self._open_camera)
         top.addWidget(camera_button)
@@ -152,55 +144,25 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------- actions
 
-    def _select_engine(self, index: int) -> None:
-        engine_cls = self._engines[index]
-        self.engine_box.setEnabled(False)
-
-        def prepare():
-            engine = engine_cls()
-            warm_up = getattr(engine, "warm_up", None)
-            if warm_up:
-                start = time.perf_counter()
-                warm_up()
-                return engine, (time.perf_counter() - start) * 1000
-            return engine, None
-
-        if getattr(engine_cls, "model", ""):
-            self._write_log(
-                f"{engine_cls.name} hazırlanıyor...",
-                "Yerel model ilk kullanımda diskten ekran kartına (ya da RAM'e) yükleniyor. "
-                "Bunu şimdi yapıyoruz ki ilk altyazı beklemesin.",
-            )
-        job = _CallJob(prepare)
-        job.signals.done.connect(lambda outcome: self._engine_ready(engine_cls, outcome))
+    def _load_engine(self) -> None:
+        job = _CallJob(self._engine_factory)
+        job.signals.done.connect(self._engine_ready)
         self._start(job)
 
-    def _engine_ready(self, engine_cls, outcome) -> None:
-        self.engine_box.setEnabled(True)
+    def _engine_ready(self, outcome) -> None:
         ok, value = outcome
         if not ok:
-            self._write_log(
-                f"{engine_cls.name} başlatılamadı: {value}",
-                "Bu motor için gereken program ya da model hazır değil. Mesajdaki adımı uygulayıp tekrar seç.",
-            )
+            self._write_log(f"Çeviri başlatılamadı: {value}")
             return
-        engine, load_ms = value
+        engine = value
         if self._pipeline is None:
             self._pipeline = TranslationPipeline(engine)
         else:
             self._pipeline.set_engine(engine)
-        note = getattr(engine, "ready_note", None)
         self.usage_label.setText("")
         self._refresh_usage()
-        if load_ms is not None:
-            self._write_log(
-                f"{engine.name} hazır (yükleme {load_ms / 1000:.1f} sn).",
-                "Model 30 dakika bellekte kalacak, sonraki çeviriler hızlı olacak.",
-            )
-        self._write_log(
-            f"Motor değişti: {engine.name}",
-            "Önceki çeviriler silindi, çünkü farklı motorların sonuçları karışmasın.",
-        )
+        self._write_log(f"Çeviri hazır: {engine.name}.")
+        note = getattr(engine, "ready_note", None)
         if note:
             self._write_log(*note)
 
@@ -300,8 +262,7 @@ class MainWindow(QMainWindow):
             "Anahtar proje klasöründe düz bir dosyada dursaydı yanlışlıkla GitHub'a gönderilebilirdi. "
             "Windows'un kendi şifre kasasında saklamak daha güvenli.",
         )
-        if self._engines[self.engine_box.currentIndex()].name == "DeepL":
-            self._select_engine(self.engine_box.currentIndex())
+        self._load_engine()
 
     def _start(self, job: QRunnable) -> None:
         job.setAutoDelete(False)
