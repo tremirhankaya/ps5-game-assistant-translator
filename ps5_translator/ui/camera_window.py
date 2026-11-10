@@ -38,7 +38,7 @@ class CameraThread(QThread):
     """Reads frames from the webcam on its own thread."""
 
     frame_ready = Signal(object)
-    opened = Signal(int, int)
+    opened = Signal(int, int, str)
     failed = Signal(str)
 
     def __init__(self, index: int, width: int = 1920, height: int = 1080, preview_fps: int = 15) -> None:
@@ -48,16 +48,33 @@ class CameraThread(QThread):
         self.height = height
         self.preview_interval = 1 / preview_fps
 
+    def _open(self):
+        # Windows has several camera systems; not every webcam or OpenCV version
+        # works with all of them, so try them in order.
+        if os.name == "nt":
+            backends = [(cv2.CAP_MSMF, "Media Foundation"), (cv2.CAP_DSHOW, "DirectShow")]
+        else:
+            backends = [(cv2.CAP_ANY, "default")]
+        for backend, name in backends:
+            if self.isInterruptionRequested():
+                return None, ""
+            cap = cv2.VideoCapture(self.index, backend)
+            if cap.isOpened():
+                return cap, name
+            cap.release()
+        return None, ""
+
     def run(self) -> None:
-        # DirectShow opens most webcams faster on Windows than the default backend.
-        backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
-        cap = cv2.VideoCapture(self.index, backend)
-        if not cap.isOpened():
-            self.failed.emit(f"{self.index} numaralı kamera açılamadı.")
+        cap, backend_name = self._open()
+        if cap is None:
+            if not self.isInterruptionRequested():
+                self.failed.emit(f"{self.index} numaralı kamera açılamadı.")
             return
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        self.opened.emit(int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+        self.opened.emit(
+            int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), backend_name
+        )
 
         last = 0.0
         while not self.isInterruptionRequested():
@@ -72,8 +89,9 @@ class CameraThread(QThread):
         cap.release()
 
     def stop(self) -> None:
+        """Ask the thread to finish. Does not block: some (virtual) cameras take
+        seconds to release, and the window must not freeze meanwhile."""
         self.requestInterruption()
-        self.wait(3000)
 
 
 def to_pixmap(frame: np.ndarray) -> QPixmap:
@@ -138,6 +156,9 @@ class CameraWindow(QWidget):
         self.resize(1300, 850)
         self._log = log
         self._thread: CameraThread | None = None
+        # Threads that were asked to stop but are still closing their camera.
+        # We keep a reference until they finish; deleting a running QThread crashes Qt.
+        self._closing_threads: set[CameraThread] = set()
         self.latest_frame: np.ndarray | None = None
         self._dragging: int | None = None
         self._band_start: tuple[float, float] | None = None
@@ -203,8 +224,8 @@ class CameraWindow(QWidget):
         settings.save_config(camera_index=index)
         self._log(
             f"Kamera {index} açılıyor...",
-            "Bilgisayara birden fazla kamera bağlıysa (ör. laptop kamerası) numaraları farklı olur. "
-            "Görüntü yanlışsa üstten başka numara seç.",
+            "Bilgisayarda birden fazla kamera olabilir; NVIDIA Broadcast, OBS gibi programlar da sanal kamera "
+            "ekler. Görüntü yanlışsa üstten başka numara seç.",
         )
         self._thread = CameraThread(index)
         self._thread.frame_ready.connect(self._on_frame)
@@ -215,13 +236,25 @@ class CameraWindow(QWidget):
         self._thread.start()
 
     def _stop_camera(self) -> None:
-        if self._thread:
-            self._thread.stop()
-            self._thread = None
+        thread = self._thread
+        if thread is None:
+            return
+        self._thread = None
+        for signal in (thread.frame_ready, thread.opened, thread.failed):
+            signal.disconnect()
+        self._closing_threads.add(thread)
+        thread.finished.connect(lambda: self._closing_threads.discard(thread))
+        thread.stop()
 
-    def _on_opened(self, width: int, height: int) -> None:
+    def shutdown(self, timeout_ms: int = 8000) -> None:
+        """Stop all camera threads and wait for them (used when the app closes)."""
+        self._stop_camera()
+        for thread in list(self._closing_threads):
+            thread.wait(timeout_ms)
+
+    def _on_opened(self, width: int, height: int, backend: str) -> None:
         self._log(
-            f"Kamera açıldı: {width}x{height}.",
+            f"Kamera açıldı: {width}x{height} ({backend}).",
             "Çözünürlük önemli: altyazı harfleri görüntüde ne kadar çok pikselden oluşursa OCR o kadar doğru okur. "
             "1920x1080 istedik; kamera desteklemiyorsa daha düşüğünü verir.",
         )
@@ -359,6 +392,11 @@ class CameraWindow(QWidget):
             )
         self.hint.setText(text)
 
+    def showEvent(self, event) -> None:
+        if self._thread is None:  # reopened after being closed
+            self._start_camera(self.camera_box.currentIndex())
+        super().showEvent(event)
+
     def closeEvent(self, event) -> None:
-        self._stop_camera()
+        self._stop_camera()  # camera keeps closing in the background; the app waits for it on exit
         super().closeEvent(event)

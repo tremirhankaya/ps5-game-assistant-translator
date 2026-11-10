@@ -225,6 +225,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         if self._camera_window is not None:
             self._camera_window.close()
+            self._camera_window.shutdown()
         super().closeEvent(event)
 
     def _open_settings(self) -> None:
