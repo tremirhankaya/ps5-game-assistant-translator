@@ -1,7 +1,10 @@
-"""Camera window: live webcam view and subtitle area selection.
+"""Camera window: live webcam view and two-step subtitle area selection.
 
-Click the four corners of the area where subtitles appear on the monitor.
-The flattened result is shown below; this is exactly what OCR will read.
+Step 1 (left): click the four corners of the monitor screen. Drag a corner to
+fine-tune it. The grid should run parallel to the monitor's edges.
+Step 2 (right): on the flattened screen, drag a rectangle around the area
+where subtitles appear.
+Bottom: exactly what OCR will read.
 """
 from __future__ import annotations
 
@@ -15,6 +18,7 @@ from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QFont, QImage, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
+    QSizePolicy,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -23,7 +27,11 @@ from PySide6.QtWidgets import (
 )
 
 from .. import settings
-from ..vision import Region
+from ..vision import Calibration
+
+DRAG_DISTANCE = 0.03  # how close (as a fraction of the image) a click must be to grab a corner
+YELLOW = (0, 200, 255)
+GREEN = (80, 220, 80)
 
 
 class CameraThread(QThread):
@@ -75,15 +83,17 @@ def to_pixmap(frame: np.ndarray) -> QPixmap:
     return QPixmap.fromImage(image)
 
 
-class _ClickableView(QLabel):
-    """Shows a frame scaled to fit and reports clicks in 0..1 image coordinates."""
+class _FrameView(QLabel):
+    """Shows an image scaled to fit and reports mouse actions in 0..1 image coordinates."""
 
-    clicked = Signal(float, float)
+    pressed = Signal(float, float)
+    moved = Signal(float, float)
+    released = Signal(float, float)
 
-    def __init__(self) -> None:
+    def __init__(self, min_w: int, min_h: int) -> None:
         super().__init__()
         self.setAlignment(Qt.AlignCenter)
-        self.setMinimumSize(640, 360)
+        self.setMinimumSize(min_w, min_h)
         self.setStyleSheet("background:#000;")
         self._image_size = (1, 1)
 
@@ -92,30 +102,49 @@ class _ClickableView(QLabel):
         self._image_size = (w, h)
         self.setPixmap(to_pixmap(frame).scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
-    def mousePressEvent(self, event) -> None:
+    def _to_image(self, event) -> tuple[float, float]:
         w, h = self._image_size
         scale = min(self.width() / w, self.height() / h)
         offset_x = (self.width() - w * scale) / 2
         offset_y = (self.height() - h * scale) / 2
-        x = (event.position().x() - offset_x) / (w * scale)
-        y = (event.position().y() - offset_y) / (h * scale)
-        if 0 <= x <= 1 and 0 <= y <= 1:
-            self.clicked.emit(x, y)
+        return (
+            (event.position().x() - offset_x) / (w * scale),
+            (event.position().y() - offset_y) / (h * scale),
+        )
+
+    def mousePressEvent(self, event) -> None:
+        self.pressed.emit(*self._to_image(event))
+
+    def mouseMoveEvent(self, event) -> None:
+        self.moved.emit(*self._to_image(event))
+
+    def mouseReleaseEvent(self, event) -> None:
+        self.released.emit(*self._to_image(event))
+
+
+def _caption(text: str = "") -> QLabel:
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+    return label
 
 
 class CameraWindow(QWidget):
-    region_changed = Signal(object)
+    calibration_changed = Signal(object)
 
     def __init__(self, log: Callable[[str, str], None]) -> None:
         super().__init__()
         self.setWindowTitle("Kamera ve altyazı bölgesi")
-        self.resize(1000, 800)
+        self.resize(1300, 850)
         self._log = log
         self._thread: CameraThread | None = None
         self.latest_frame: np.ndarray | None = None
+        self._dragging: int | None = None
+        self._band_start: tuple[float, float] | None = None
+        self._band_preview: tuple[float, float, float, float] | None = None
 
         config = settings.load_config()
-        self.region = Region.from_dict(config.get("region"))
+        self.calibration = Calibration.from_dict(config.get("calibration"))
         camera_index = int(config.get("camera_index", 0))
 
         layout = QVBoxLayout(self)
@@ -127,26 +156,42 @@ class CameraWindow(QWidget):
         self.camera_box.setCurrentIndex(camera_index)
         self.camera_box.currentIndexChanged.connect(self._start_camera)
         top.addWidget(self.camera_box)
-        reset = QPushButton("Bölgeyi sıfırla")
-        reset.clicked.connect(self._reset_region)
-        top.addWidget(reset)
+        reset_corners = QPushButton("Köşeleri sıfırla")
+        reset_corners.clicked.connect(self._reset_corners)
+        top.addWidget(reset_corners)
+        reset_band = QPushButton("Altyazı alanını sıfırla")
+        reset_band.clicked.connect(self._reset_band)
+        top.addWidget(reset_band)
         top.addStretch()
         layout.addLayout(top)
 
-        self.hint = QLabel()
+        self.hint = _caption()
         self.hint.setFont(QFont("Segoe UI", 11))
         layout.addWidget(self.hint)
 
-        self.view = _ClickableView()
-        self.view.clicked.connect(self._add_point)
-        layout.addWidget(self.view, stretch=3)
+        views = QHBoxLayout()
+        left = QVBoxLayout()
+        left.addWidget(_caption("1. Kamera görüntüsü: monitörün 4 köşesi"))
+        self.camera_view = _FrameView(560, 380)
+        self.camera_view.pressed.connect(self._camera_pressed)
+        self.camera_view.moved.connect(self._camera_moved)
+        self.camera_view.released.connect(self._camera_released)
+        left.addWidget(self.camera_view)
+        views.addLayout(left, stretch=1)
 
-        layout.addWidget(QLabel("OCR'ın göreceği düzleştirilmiş görüntü:"))
-        self.flat_view = QLabel()
-        self.flat_view.setAlignment(Qt.AlignCenter)
-        self.flat_view.setMinimumHeight(120)
-        self.flat_view.setStyleSheet("background:#000;")
-        layout.addWidget(self.flat_view, stretch=1)
+        right = QVBoxLayout()
+        right.addWidget(_caption("2. Düzleştirilmiş ekran: altyazı alanını sürükleyerek seç"))
+        self.screen_view = _FrameView(560, 315)
+        self.screen_view.pressed.connect(self._screen_pressed)
+        self.screen_view.moved.connect(self._screen_moved)
+        self.screen_view.released.connect(self._screen_released)
+        right.addWidget(self.screen_view)
+        views.addLayout(right, stretch=1)
+        layout.addLayout(views, stretch=3)
+
+        layout.addWidget(_caption("OCR'ın okuyacağı görüntü:"))
+        self.crop_view = _FrameView(400, 120)
+        layout.addWidget(self.crop_view, stretch=1)
 
         self._update_hint()
         self._start_camera(camera_index)
@@ -164,7 +209,9 @@ class CameraWindow(QWidget):
         self._thread = CameraThread(index)
         self._thread.frame_ready.connect(self._on_frame)
         self._thread.opened.connect(self._on_opened)
-        self._thread.failed.connect(lambda msg: self._log(msg, "Kamera başka bir programda açık olabilir ya da bu numarada kamera yoktur."))
+        self._thread.failed.connect(
+            lambda msg: self._log(msg, "Kamera başka bir programda açık olabilir ya da bu numarada kamera yoktur.")
+        )
         self._thread.start()
 
     def _stop_camera(self) -> None:
@@ -181,53 +228,134 @@ class CameraWindow(QWidget):
 
     def _on_frame(self, frame: np.ndarray) -> None:
         self.latest_frame = frame
+        calib = self.calibration
+        h, w = frame.shape[:2]
+
         shown = frame.copy()
-        h, w = shown.shape[:2]
-        if self.region.points:
-            pts = [(int(x * w), int(y * h)) for x, y in self.region.points]
-            for p in pts:
-                cv2.circle(shown, p, 8, (0, 200, 255), -1)
-            if self.region.is_complete:
-                poly = self.region.pixel_points(w, h).astype(np.int32)
-                cv2.polylines(shown, [poly], True, (0, 200, 255), 3)
-        self.view.show_frame(shown)
+        for x, y in calib.screen.points:
+            cv2.circle(shown, (int(x * w), int(y * h)), 10, YELLOW, -1)
+        if calib.has_screen:
+            cv2.polylines(shown, [calib.screen.pixel_points(w, h).astype(np.int32)], True, YELLOW, 3)
+            for line in calib.grid_lines(w, h):
+                cv2.line(shown, tuple(map(int, line[0])), tuple(map(int, line[1])), YELLOW, 1)
+        self.camera_view.show_frame(shown)
 
-        if self.region.is_complete:
-            flat = self.region.warp(frame)
-            self.flat_view.setPixmap(
-                to_pixmap(flat).scaled(self.flat_view.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            )
+        if not calib.has_screen:
+            self.screen_view.clear()
+            self.crop_view.clear()
+            return
 
-    # -- region
+        flat = calib.flatten_screen(frame)
+        band = self._band_preview or calib.band
+        if band:
+            fh, fw = flat.shape[:2]
+            x0, y0, x1, y1 = band
+            cv2.rectangle(flat, (int(x0 * fw), int(y0 * fh)), (int(x1 * fw), int(y1 * fh)), GREEN, 2)
+        self.screen_view.show_frame(flat)
 
-    def _add_point(self, x: float, y: float) -> None:
-        self.region.add_point(x, y)
-        if self.region.is_complete:
-            settings.save_config(region=self.region.to_dict())
-            self._log(
-                "Altyazı bölgesi kaydedildi ve düzleştirildi.",
-                "Kamera monitöre açılı baktığı için yazılar yamuk görünür. Dört köşeyle görüntüyü düz bir "
-                "dikdörtgene çeviriyoruz (perspektif düzeltme), çünkü OCR düz satırları çok daha iyi okur. "
-                "Bölge kaydedildi, bir dahaki açılışta tekrar seçmen gerekmez.",
-            )
-            self.region_changed.emit(self.region)
+        crop = calib.subtitle_crop(frame)
+        if crop is not None:
+            self.crop_view.show_frame(crop)
+        else:
+            self.crop_view.clear()
+
+    # -- step 1: screen corners
+
+    def _camera_pressed(self, x: float, y: float) -> None:
+        screen = self.calibration.screen
+        if not (0 <= x <= 1 and 0 <= y <= 1):
+            return
+        near = screen.nearest_point(x, y, DRAG_DISTANCE)
+        if near is not None:
+            self._dragging = near
+            return
+        if screen.is_complete:
+            return  # ignore clicks away from corners; use "Köşeleri sıfırla" to start over
+        screen.add_point(x, y)
+        if screen.is_complete:
+            self._screen_done()
         self._update_hint()
 
-    def _reset_region(self) -> None:
-        self.region.clear()
-        self.flat_view.clear()
-        settings.save_config(region=None)
-        self.region_changed.emit(self.region)
+    def _camera_moved(self, x: float, y: float) -> None:
+        if self._dragging is not None:
+            self.calibration.screen.move_point(self._dragging, x, y)
+
+    def _camera_released(self, x: float, y: float) -> None:
+        if self._dragging is not None:
+            self._dragging = None
+            if self.calibration.has_screen:
+                self._save()
+
+    def _screen_done(self) -> None:
+        self._save()
+        self._log(
+            "Monitörün köşeleri seçildi, ekran düzleştirildi.",
+            "Kamera monitöre açılı baktığı için ekran yamuk görünür. Monitörün 16:9 olduğunu bildiğimiz için "
+            "4 köşeden ekranı tam doğru oranlarla düz bir dikdörtgene çevirebiliyoruz (perspektif düzeltme). "
+            "Izgara çizgileri monitörün kenarlarına paralel değilse bir köşeyi sürükleyerek düzelt.",
+        )
+
+    # -- step 2: subtitle band
+
+    def _screen_pressed(self, x: float, y: float) -> None:
+        if self.calibration.has_screen:
+            self._band_start = (x, y)
+
+    def _screen_moved(self, x: float, y: float) -> None:
+        if self._band_start:
+            self._band_preview = (*self._band_start, x, y)
+            x0, y0, x1, y1 = self._band_preview
+            self._band_preview = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+
+    def _screen_released(self, x: float, y: float) -> None:
+        if not self._band_start:
+            return
+        before = self.calibration.band
+        self.calibration.set_band(*self._band_start, x, y)
+        self._band_start = None
+        self._band_preview = None
+        if self.calibration.band != before:
+            self._save()
+            self._log(
+                "Altyazı alanı seçildi.",
+                "OCR'a ekranın tamamını değil sadece bu bandı gönderiyoruz. Böylece menüler, bildirimler gibi "
+                "başka yazılar çeviriye karışmaz ve OCR daha hızlı çalışır.",
+            )
+        self._update_hint()
+
+    # -- helpers
+
+    def _save(self) -> None:
+        settings.save_config(calibration=self.calibration.to_dict())
+        self.calibration_changed.emit(self.calibration)
+
+    def _reset_corners(self) -> None:
+        self.calibration.screen.clear()
+        self._save()
+        self._update_hint()
+
+    def _reset_band(self) -> None:
+        self.calibration.band = None
+        self._save()
         self._update_hint()
 
     def _update_hint(self) -> None:
-        n = len(self.region.points)
-        if n == 4:
-            text = "Bölge seçili. Değiştirmek için tekrar tıkla ya da 'Bölgeyi sıfırla'ya bas."
+        calib = self.calibration
+        n = len(calib.screen.points)
+        if n < 4:
+            text = (
+                f"Adım 1: Soldaki görüntüde monitör ekranının 4 köşesine tıkla ({n}/4). "
+                "Ekranın parlak alanının bittiği köşeleri seç."
+            )
+        elif calib.band is None:
+            text = (
+                "Adım 2: Sağdaki düz ekranda altyazının çıktığı alanı fareyle sürükleyerek seç. "
+                "İki satırlık altyazılar da sığacak kadar yüksek tut. Köşeleri sürükleyerek ince ayar yapabilirsin."
+            )
         else:
             text = (
-                f"Monitörde altyazıların çıktığı alanın 4 köşesine tıkla ({n}/4). "
-                "Biraz geniş tut ki iki satırlık altyazılar da sığsın."
+                "Hazır. Köşeleri sürükleyerek ince ayar yapabilir, sağda yeni bir alan sürükleyerek altyazı "
+                "bölgesini değiştirebilirsin."
             )
         self.hint.setText(text)
 
