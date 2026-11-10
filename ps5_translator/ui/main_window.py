@@ -5,6 +5,7 @@ the same pipeline automatically.
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
@@ -43,6 +44,21 @@ class _TranslateJob(QRunnable):
         self.signals.done.emit(self.pipeline.process(self.text))
 
 
+class _CallJob(QRunnable):
+    """Runs any slow function off the UI thread. Emits (ok, value_or_error)."""
+
+    def __init__(self, fn) -> None:
+        super().__init__()
+        self.fn = fn
+        self.signals = _Signals()
+
+    def run(self) -> None:
+        try:
+            self.signals.done.emit((True, self.fn()))
+        except Exception as exc:
+            self.signals.done.emit((False, str(exc) or exc.__class__.__name__))
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -51,6 +67,7 @@ class MainWindow(QMainWindow):
 
         # One worker thread: lines are translated in the order they arrive.
         self._pool = QThreadPool()
+        self._jobs: set[QRunnable] = set()  # keep jobs alive until they report back
         self._pool.setMaxThreadCount(1)
         self._engines = available_engines()
         self._pipeline: TranslationPipeline | None = None
@@ -118,19 +135,56 @@ class MainWindow(QMainWindow):
 
     def _select_engine(self, index: int) -> None:
         engine_cls = self._engines[index]
-        try:
+        self.engine_box.setEnabled(False)
+
+        def prepare():
             engine = engine_cls()
-        except Exception as exc:
-            self._write_log(f"{engine_cls.name} başlatılamadı: {exc}", "Gerekli paket kurulu olmayabilir.")
+            warm_up = getattr(engine, "warm_up", None)
+            if warm_up:
+                start = time.perf_counter()
+                warm_up()
+                return engine, (time.perf_counter() - start) * 1000
+            return engine, None
+
+        if getattr(engine_cls, "model", ""):
+            self._write_log(
+                f"{engine_cls.name} hazırlanıyor...",
+                "Yerel model ilk kullanımda diskten ekran kartına (ya da RAM'e) yükleniyor. "
+                "Bunu şimdi yapıyoruz ki ilk altyazı beklemesin.",
+            )
+        job = _CallJob(prepare)
+        job.signals.done.connect(lambda outcome: self._engine_ready(engine_cls, outcome))
+        self._start(job)
+
+    def _engine_ready(self, engine_cls, outcome) -> None:
+        self.engine_box.setEnabled(True)
+        ok, value = outcome
+        if not ok:
+            self._write_log(
+                f"{engine_cls.name} başlatılamadı: {value}",
+                "Bu motor için gereken program ya da model hazır değil. Mesajdaki adımı uygulayıp tekrar seç.",
+            )
             return
+        engine, load_ms = value
         if self._pipeline is None:
             self._pipeline = TranslationPipeline(engine)
         else:
             self._pipeline.set_engine(engine)
+        if load_ms is not None:
+            self._write_log(
+                f"{engine.name} hazır (yükleme {load_ms / 1000:.1f} sn).",
+                "Model 30 dakika bellekte kalacak, sonraki çeviriler hızlı olacak.",
+            )
         self._write_log(
             f"Motor değişti: {engine.name}",
             "Önceki çeviriler silindi, çünkü farklı motorların sonuçları karışmasın.",
         )
+
+    def _start(self, job: QRunnable) -> None:
+        job.setAutoDelete(False)
+        self._jobs.add(job)
+        job.signals.done.connect(lambda _: self._jobs.discard(job))
+        self._pool.start(job)
 
     def _submit(self) -> None:
         text = self.input.text()
@@ -139,7 +193,7 @@ class MainWindow(QMainWindow):
         self.input.clear()
         job = _TranslateJob(self._pipeline, text)
         job.signals.done.connect(self._show_result)
-        self._pool.start(job)
+        self._start(job)
 
     def _show_result(self, result: Result | None) -> None:
         if result is None:
