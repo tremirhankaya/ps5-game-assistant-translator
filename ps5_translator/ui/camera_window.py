@@ -34,7 +34,7 @@ from ..vision.autotune import AutoTuneReport, auto_calibrate
 from ..vision.calibration import FULL, PARTIAL
 from .jobs import JobRunner
 
-OCR_INTERVAL_MS = 700  # how often the subtitle area is read
+OCR_INTERVAL_MS = 300  # how often the subtitle area is read (skipped while a read is still running)
 
 DRAG_DISTANCE = 0.03  # how close (as a fraction of the image) a click must be to grab a corner
 YELLOW = (0, 200, 255)
@@ -177,6 +177,7 @@ class CameraWindow(QWidget):
         self.ocr_engine = None
         self._ocr_busy = False
         self._auto_running = False
+        self.keep_running = False  # live translation: keep camera and OCR working while the window is closed
         self._calibration_version = 0  # increases on every change; old OCR results are ignored
 
         config = settings.load_config()
@@ -638,7 +639,18 @@ class CameraWindow(QWidget):
         self._ocr_timer.start(OCR_INTERVAL_MS)
         super().showEvent(event)
 
+    def set_live(self, on: bool) -> None:
+        self.keep_running = on
+        if on:
+            if self._thread is None:
+                self._start_camera(self.camera_box.currentIndex())
+            self._ocr_timer.start(OCR_INTERVAL_MS)
+        elif not self.isVisible():
+            self._ocr_timer.stop()
+            self._stop_camera()
+
     def closeEvent(self, event) -> None:
-        self._ocr_timer.stop()
-        self._stop_camera()  # camera keeps closing in the background; the app waits for it on exit
+        if not self.keep_running:
+            self._ocr_timer.stop()
+            self._stop_camera()  # camera keeps closing in the background; the app waits for it on exit
         super().closeEvent(event)

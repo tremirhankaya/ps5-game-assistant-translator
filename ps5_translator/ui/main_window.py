@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from .. import settings
 from ..explain import explain
+from ..ocr.stability import StabilityFilter
 from ..translation import Result, TranslationPipeline, available_engines
 
 
@@ -75,6 +76,7 @@ class MainWindow(QMainWindow):
         self._pipeline: TranslationPipeline | None = None
         self._translated_since_usage = 0
         self._camera_window = None
+        self._stability = StabilityFilter()
 
         self._build_ui()
         self._select_engine(0)
@@ -100,6 +102,10 @@ class MainWindow(QMainWindow):
         settings_button = QPushButton("Ayarlar")
         settings_button.clicked.connect(self._open_settings)
         top.addWidget(settings_button)
+        self.live_toggle = QCheckBox("Canlı çeviri")
+        self.live_toggle.setToolTip("Kameranın okuduğu altyazıları otomatik çevirir.")
+        self.live_toggle.toggled.connect(self._live_toggled)
+        top.addWidget(self.live_toggle)
         top.addStretch()
         self.usage_label = QLabel("")
         self.usage_label.setStyleSheet("color:#888;")
@@ -214,13 +220,56 @@ class MainWindow(QMainWindow):
             used, limit = value
             self.usage_label.setText(f"DeepL kotası: {used:,} / {limit:,} karakter".replace(",", "."))
 
-    def _open_camera(self) -> None:
+    def _ensure_camera(self):
         from .camera_window import CameraWindow
 
         if self._camera_window is None:
             self._camera_window = CameraWindow(log=self._write_log)
-        self._camera_window.show()
-        self._camera_window.raise_()
+            self._camera_window.ocr_read.connect(self._on_ocr)
+        return self._camera_window
+
+    def _open_camera(self) -> None:
+        window = self._ensure_camera()
+        window.show()
+        window.raise_()
+
+    # -- live translation
+
+    def _live_toggled(self, on: bool) -> None:
+        camera = self._ensure_camera()
+        self._stability.reset()
+        camera.set_live(on)
+        if not on:
+            self._write_log("Canlı çeviri durduruldu.")
+            return
+        if not camera.calibration.is_complete:
+            self._write_log(
+                "Canlı çeviri için önce kamera ayarı gerekli.",
+                "Kamera penceresinde köşeleri ve altyazı alanını seç; seçince çeviri kendiliğinden başlar.",
+            )
+            self._open_camera()
+            return
+        self._write_log(
+            "Canlı çeviri başladı.",
+            "Kamera altyazı alanını sürekli okuyor. Bir yazı art arda iki okumada aynı çıkınca çeviriye gönderilir. "
+            "Kamera penceresini kapatabilirsin; arka planda çalışmaya devam eder.",
+        )
+
+    def _on_ocr(self, result) -> None:
+        if not self.live_toggle.isChecked() or self._pipeline is None:
+            return
+        text = self._stability.feed(result.text)
+        if text is None:
+            return
+        score = f", güven {result.score:.2f}" if result.score is not None else ""
+        self._write_log(
+            f"OCR okudu ve yazı sabitlendi: \"{text}\" ({result.ms:.0f} ms{score})",
+            "Aynı yazı art arda iki kez okundu, yani altyazı tamamlandı ve kamera titremesi değil. "
+            "Yarım cümleleri çevirmemek ve kotayı boşa harcamamak için bunu bekliyoruz.",
+        )
+        job = _TranslateJob(self._pipeline, text)
+        job.signals.done.connect(self._show_result)
+        self._start(job)
 
     def closeEvent(self, event) -> None:
         if self._camera_window is not None:
