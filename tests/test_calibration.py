@@ -73,3 +73,22 @@ def test_calibration_round_trip(tmp_path, monkeypatch):
     loaded = Calibration.from_dict(settings.load_config()["calibration"])
     assert loaded.band == calib.band
     assert loaded.screen.points == calib.screen.points
+
+
+def test_partial_mode_uses_camera_shape_and_height_correction():
+    frame, calib = make_camera_frame()
+    calib.mode = "partial"
+    natural_w, natural_h = calib.screen.natural_size(1920, 1080)
+    assert calib.screen_size(frame) == (natural_w, natural_h)
+    calib.height_scale = 1.5
+    assert calib.screen_size(frame) == (natural_w, round(natural_h * 1.5))
+
+
+def test_mode_and_scale_are_saved():
+    calib = Calibration(mode="partial", height_scale=1.8)
+    loaded = Calibration.from_dict(calib.to_dict())
+    assert loaded.mode == "partial" and loaded.height_scale == 1.8
+
+
+def test_old_config_without_mode_still_loads():
+    assert Calibration.from_dict({"screen": {"points": []}, "band": None}).mode == "full"

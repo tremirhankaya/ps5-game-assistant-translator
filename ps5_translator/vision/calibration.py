@@ -4,6 +4,12 @@ Step 1: the user clicks the four corners of the monitor screen. These are easy
 to see. Because we know the screen's shape (16:9), the flattened image has the
 correct proportions and text comes out straight.
 
+If the camera sits below the monitor (so it does not bother the player), it
+only sees the lower part of the screen. In "partial" mode the user picks the
+corners of a rectangle on that visible part instead. Its true shape is not
+known, so we estimate it from the camera image and let the user correct the
+height with a slider (text seen from below looks squashed).
+
 Step 2: on the flattened screen, the user drags a normal rectangle around the
 area where subtitles appear (the "band"). Only this part is sent to OCR, so
 other text on the screen (menus, notifications) is ignored.
@@ -19,12 +25,17 @@ from .region import Region
 
 Band = tuple[float, float, float, float]  # x0, y0, x1, y1 as fractions of the flat screen
 
+FULL = "full"  # the camera sees the whole screen; we know it is 16:9
+PARTIAL = "partial"  # the camera sees only part of the screen
+
 
 @dataclass
 class Calibration:
     screen: Region = field(default_factory=Region)
     aspect: float = 16 / 9
     band: Band | None = None
+    mode: str = FULL
+    height_scale: float = 1.0  # partial mode: user correction for squashed text
 
     @property
     def has_screen(self) -> bool:
@@ -34,11 +45,18 @@ class Calibration:
     def is_complete(self) -> bool:
         return self.has_screen and self.band is not None
 
+    def size_for(self, width: int, height: int) -> tuple[int, int]:
+        """Size of the flattened area for a camera image of width x height."""
+        natural_w, natural_h = self.screen.natural_size(width, height)
+        if self.mode == FULL:
+            out_h = natural_w / self.aspect  # known shape: the monitor is 16:9
+        else:
+            out_h = natural_h * self.height_scale  # estimated shape, corrected by the user
+        return natural_w, max(int(round(out_h)), 1)
+
     def screen_size(self, frame: np.ndarray) -> tuple[int, int]:
-        """Flat screen size: as wide as the camera sees it, height from the known aspect ratio."""
         h, w = frame.shape[:2]
-        natural_w, _ = self.screen.natural_size(w, h)
-        return natural_w, max(int(round(natural_w / self.aspect)), 1)
+        return self.size_for(w, h)
 
     def flatten_screen(self, frame: np.ndarray) -> np.ndarray:
         return self.screen.warp(frame, self.screen_size(frame))
@@ -67,7 +85,8 @@ class Calibration:
     def grid_lines(self, width: int, height: int, divisions: int = 4) -> list[np.ndarray]:
         """Lines of a grid on the screen, drawn in camera coordinates.
         If the corners are right, these lines follow the monitor's edges."""
-        screen_size = (1000, int(1000 / self.aspect))
+        flat_w, flat_h = self.size_for(width, height)
+        screen_size = (1000, max(int(1000 * flat_h / flat_w), 1))
         inverse = np.linalg.inv(self.screen.matrix(width, height, screen_size))
         sw, sh = screen_size
         lines = []
@@ -81,10 +100,20 @@ class Calibration:
     # -- saving
 
     def to_dict(self) -> dict:
-        return {"screen": self.screen.to_dict(), "band": list(self.band) if self.band else None}
+        return {
+            "screen": self.screen.to_dict(),
+            "band": list(self.band) if self.band else None,
+            "mode": self.mode,
+            "height_scale": self.height_scale,
+        }
 
     @classmethod
     def from_dict(cls, data: dict | None) -> "Calibration":
         data = data or {}
         band = data.get("band")
-        return cls(screen=Region.from_dict(data.get("screen")), band=tuple(band) if band else None)
+        return cls(
+            screen=Region.from_dict(data.get("screen")),
+            band=tuple(band) if band else None,
+            mode=data.get("mode", FULL),
+            height_scale=float(data.get("height_scale", 1.0)),
+        )
