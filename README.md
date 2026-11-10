@@ -25,6 +25,17 @@ PS5 kablolaması değişmez: konsol doğrudan monitöre bağlı kalır, oyun gö
 - Her parça değiştirilebilir: OCR motoru, çeviri motoru, opsiyonel yerel AI.
 - Opsiyonel AI kuruluysa: daha iyi çeviri ve diyaloglar hakkında soru sorabilme.
 
+## Kurulum (geliştirme)
+
+Python 3.11 veya üzeri gerekir.
+
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements-dev.txt
+python -m ps5_translator
+```
+
 ## Notlar
 
 - Varsayılan Google çeviri motoru resmi bir API değildir; çok sık istekte geçici olarak engellenebilir.
