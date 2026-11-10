@@ -60,3 +60,18 @@ def test_next_port_is_used_when_busy():
     assert b.port != a.port
     a._httpd.server_close()
     b._httpd.server_close()
+
+
+def test_waiting_request_returns_as_soon_as_a_line_arrives(server):
+    import threading
+    import time
+
+    threading.Timer(0.3, lambda: server.add_line("Merhaba", "Hello")).start()
+    start = time.monotonic()
+    data = json.loads(get(server, "/secret/lines?after=0&wait=10"))
+    assert [l["translated"] for l in data["lines"]] == ["Merhaba"]
+    assert time.monotonic() - start < 3
+
+
+def test_waiting_request_times_out_empty(server):
+    assert json.loads(get(server, "/secret/lines?after=0&wait=0.2"))["lines"] == []

@@ -1,7 +1,8 @@
 """Show translations on a phone: a tiny web server for the home network.
 
 The phone opens http://<this PC>:<port>/<code>/ in its browser; no app needed.
-The page asks for new lines about twice a second. Only translated subtitles
+The page keeps one request open and the server answers it the moment a new
+line exists (long polling), so the phone shows a translation right away. Only translated subtitles
 are served: no settings, no API key. The random code in the address keeps
 other devices on the network from opening the page by guessing.
 """
@@ -17,6 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 DEFAULT_PORT = 8765
+MAX_WAIT = 25.0  # seconds a phone's request may stay open waiting for a new line
 _PAGE = Path(__file__).with_name("page.html")
 
 
@@ -40,7 +42,8 @@ class ShareServer:
     def __init__(self, code: str, port: int = DEFAULT_PORT, host: str = "0.0.0.0") -> None:
         self.code = code
         self._lines: list[dict] = []
-        self._lock = threading.Lock()
+        self._lock = threading.Condition()
+        self._stopped = False
         self._httpd = self._bind(host, port)
         self.port = self._httpd.server_address[1]
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
@@ -63,6 +66,9 @@ class ShareServer:
         self._thread.start()
 
     def stop(self) -> None:
+        with self._lock:
+            self._stopped = True
+            self._lock.notify_all()  # release phones that are waiting for a line
         self._httpd.shutdown()
         self._httpd.server_close()
 
@@ -71,9 +77,13 @@ class ShareServer:
             self._lines.append(
                 {"time": time or datetime.now().strftime("%H:%M:%S"), "translated": translated, "source": source}
             )
+            self._lock.notify_all()
 
-    def lines_after(self, index: int) -> dict:
+    def lines_after(self, index: int, wait: float = 0.0) -> dict:
+        """Lines after `index`. With `wait`, blocks up to that many seconds until there is one."""
         with self._lock:
+            if wait > 0 and index >= len(self._lines):
+                self._lock.wait_for(lambda: self._stopped or len(self._lines) > index, timeout=wait)
             index = max(0, min(index, len(self._lines)))
             return {"total": len(self._lines), "lines": self._lines[index:]}
 
@@ -91,11 +101,16 @@ class ShareServer:
                 if rest == "":
                     self._send(_PAGE.read_bytes(), "text/html; charset=utf-8")
                 elif rest == "lines":
+                    query = parse_qs(url.query)
                     try:
-                        after = int(parse_qs(url.query).get("after", ["0"])[0])
+                        after = int(query.get("after", ["0"])[0])
                     except ValueError:
                         after = 0
-                    body = json.dumps(server.lines_after(after), ensure_ascii=False).encode("utf-8")
+                    try:
+                        wait = min(max(float(query.get("wait", ["0"])[0]), 0.0), MAX_WAIT)
+                    except ValueError:
+                        wait = 0.0
+                    body = json.dumps(server.lines_after(after, wait), ensure_ascii=False).encode("utf-8")
                     self._send(body, "application/json; charset=utf-8")
                 else:
                     self.send_error(404)

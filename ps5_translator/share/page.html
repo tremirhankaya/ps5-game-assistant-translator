@@ -28,7 +28,7 @@
 </style>
 </head>
 <body>
-<div id="bar"><button id="toggle">Geçmiş</button></div>
+<div id="bar"><button id="full">Tam ekran</button> <button id="toggle">Geçmiş</button></div>
 <div id="live"><div id="liveInner">
   <div id="recent"></div>
   <div id="current">Çeviri bekleniyor...</div>
@@ -85,10 +85,31 @@ el('toggle').onclick = function () {
 };
 el('search').oninput = renderHistory;
 
+// Full screen. iPhones do not allow this for web pages; there the button is hidden
+// and "Add to Home Screen" gives the same result.
+var root = document.documentElement;
+var enterFull = root.requestFullscreen || root.webkitRequestFullscreen || root.mozRequestFullScreen || root.msRequestFullscreen;
+var exitFull = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+function isFull() {
+  return document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+}
+if (!enterFull) {
+  el('full').style.display = 'none';
+} else {
+  el('full').onclick = function () {
+    if (isFull()) { exitFull.call(document); } else { enterFull.call(root); }
+  };
+  var onChange = function () { el('full').textContent = isFull() ? 'Tam ekrandan çık' : 'Tam ekran'; };
+  document.addEventListener('fullscreenchange', onChange);
+  document.addEventListener('webkitfullscreenchange', onChange);
+}
+
 function poll() {
   var xhr = new XMLHttpRequest();
-  xhr.open('GET', 'lines?after=' + lines.length, true);
-  xhr.timeout = 5000;
+  // The server answers the moment a new line exists (or after 20 s with nothing),
+  // so a translation reaches the phone without waiting for the next poll.
+  xhr.open('GET', 'lines?after=' + lines.length + '&wait=20', true);
+  xhr.timeout = 30000;
   xhr.onload = function () {
     if (xhr.status === 200) {
       var data = JSON.parse(xhr.responseText);
@@ -96,7 +117,7 @@ function poll() {
       if (data.lines.length) { lines = lines.concat(data.lines); render(); }
       el('status').textContent = '';
     } else { el('status').textContent = 'Bağlantı hatası (' + xhr.status + ')'; }
-    setTimeout(poll, 600);
+    setTimeout(poll, xhr.status === 200 ? 0 : 2000);
   };
   xhr.onerror = xhr.ontimeout = function () {
     el('status').textContent = 'Bilgisayara bağlanılamıyor, tekrar deneniyor...';
