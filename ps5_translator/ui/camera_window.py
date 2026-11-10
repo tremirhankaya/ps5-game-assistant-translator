@@ -19,6 +19,7 @@ from PySide6.QtGui import QFont, QImage, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QSizePolicy,
+    QSlider,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from .. import settings
 from ..vision import Calibration
+from ..vision.calibration import FULL, PARTIAL
 
 DRAG_DISTANCE = 0.03  # how close (as a fraction of the image) a click must be to grab a corner
 YELLOW = (0, 200, 255)
@@ -177,6 +179,13 @@ class CameraWindow(QWidget):
         self.camera_box.setCurrentIndex(camera_index)
         self.camera_box.currentIndexChanged.connect(self._start_camera)
         top.addWidget(self.camera_box)
+        top.addWidget(QLabel("Kamera neyi görüyor:"))
+        self.mode_box = QComboBox()
+        self.mode_box.addItem("Ekranın tamamını", FULL)
+        self.mode_box.addItem("Ekranın alt kısmını", PARTIAL)
+        self.mode_box.setCurrentIndex(1 if self.calibration.mode == PARTIAL else 0)
+        self.mode_box.currentIndexChanged.connect(self._mode_changed)
+        top.addWidget(self.mode_box)
         reset_corners = QPushButton("Köşeleri sıfırla")
         reset_corners.clicked.connect(self._reset_corners)
         top.addWidget(reset_corners)
@@ -186,13 +195,29 @@ class CameraWindow(QWidget):
         top.addStretch()
         layout.addLayout(top)
 
+        scale_row = QHBoxLayout()
+        self.scale_label = QLabel()
+        scale_row.addWidget(self.scale_label)
+        self.scale_slider = QSlider(Qt.Horizontal)
+        self.scale_slider.setRange(50, 400)
+        self.scale_slider.setValue(int(self.calibration.height_scale * 100))
+        self.scale_slider.valueChanged.connect(self._scale_changed)
+        self.scale_slider.sliderReleased.connect(self._scale_released)
+        scale_row.addWidget(self.scale_slider, stretch=1)
+        self.scale_widget = QWidget()
+        self.scale_widget.setLayout(scale_row)
+        self.scale_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        layout.addWidget(self.scale_widget)
+        self._update_scale_label()
+
         self.hint = _caption()
         self.hint.setFont(QFont("Segoe UI", 11))
         layout.addWidget(self.hint)
 
         views = QHBoxLayout()
         left = QVBoxLayout()
-        left.addWidget(_caption("1. Kamera görüntüsü: monitörün 4 köşesi"))
+        self.step1_caption = _caption()
+        left.addWidget(self.step1_caption)
         self.camera_view = _FrameView(560, 380)
         self.camera_view.pressed.connect(self._camera_pressed)
         self.camera_view.moved.connect(self._camera_moved)
@@ -321,6 +346,14 @@ class CameraWindow(QWidget):
 
     def _screen_done(self) -> None:
         self._save()
+        if self.calibration.mode == PARTIAL:
+            self._log(
+                "Köşeler seçildi, alan düzleştirildi.",
+                "Kamera açılı baktığı için alan yamuk görünür; 4 köşeyle düz bir dikdörtgene çeviriyoruz. "
+                "Izgara ekranın kenarlarına paralel değilse bir köşeyi sürükle. Yazılar basık görünüyorsa "
+                "yükseklik kaydırıcısını artır.",
+            )
+            return
         self._log(
             "Monitörün köşeleri seçildi, ekran düzleştirildi.",
             "Kamera monitöre açılı baktığı için ekran yamuk görünür. Monitörün 16:9 olduğunu bildiğimiz için "
@@ -356,6 +389,42 @@ class CameraWindow(QWidget):
             )
         self._update_hint()
 
+    # -- partial mode
+
+    def _mode_changed(self, index: int) -> None:
+        self.calibration.mode = self.mode_box.itemData(index)
+        self.calibration.screen.clear()  # corners mean something different in each mode
+        self.calibration.band = None
+        self._save()
+        if self.calibration.mode == PARTIAL:
+            self._log(
+                "Mod: kamera ekranın sadece alt kısmını görüyor.",
+                "Kamera masada, monitörün altında durursa oyuncuyu rahatsız etmez ve altyazılara en yakın yerde olur. "
+                "Ama ekranın tamamını görmediği için alanın gerçek oranını bilemeyiz; kamera görüntüsünden tahmin edip "
+                "yükseklik kaydırıcısıyla düzeltiyoruz.",
+            )
+        else:
+            self._log(
+                "Mod: kamera ekranın tamamını görüyor.",
+                "Monitörün 16:9 olduğunu bildiğimiz için düzleştirme tahmin gerektirmez, en doğru sonuç budur.",
+            )
+        self._update_hint()
+
+    def _scale_changed(self, value: int) -> None:
+        self.calibration.height_scale = value / 100
+        self._update_scale_label()
+
+    def _scale_released(self) -> None:
+        self._save()
+        self._log(
+            f"Yükseklik düzeltmesi %{self.scale_slider.value()} olarak kaydedildi.",
+            "Aşağıdan bakan kamera yazıları dikey olarak basık görür. OCR, harfler normal oranlarına yakın olduğunda "
+            "en iyi sonucu verir.",
+        )
+
+    def _update_scale_label(self) -> None:
+        self.scale_label.setText(f"Yükseklik düzeltme: %{self.scale_slider.value()}")
+
     # -- helpers
 
     def _save(self) -> None:
@@ -374,11 +443,27 @@ class CameraWindow(QWidget):
 
     def _update_hint(self) -> None:
         calib = self.calibration
+        partial = calib.mode == PARTIAL
+        self.scale_widget.setVisible(partial)
+        self.step1_caption.setText(
+            "1. Kamera görüntüsü: ekranın görünen kısmında bir dikdörtgen" if partial
+            else "1. Kamera görüntüsü: monitörün 4 köşesi"
+        )
         n = len(calib.screen.points)
-        if n < 4:
+        if n < 4 and partial:
+            text = (
+                f"Adım 1: Ekranın görünen kısmında, kenarlara paralel bir dikdörtgenin 4 köşesine tıkla ({n}/4). "
+                "Alt köşeler ekranın alt kenarında (çerçevenin hemen üstünde), üst köşeler altyazının biraz üstünde olsun."
+            )
+        elif n < 4:
             text = (
                 f"Adım 1: Soldaki görüntüde monitör ekranının 4 köşesine tıkla ({n}/4). "
                 "Ekranın parlak alanının bittiği köşeleri seç."
+            )
+        elif partial and calib.band is None:
+            text = (
+                "Adım 2: Önce kaydırıcıyla yüksekliği ayarla: sağdaki görüntüde yazılar normal oranda görünsün. "
+                "Sonra altyazının çıktığı alanı fareyle sürükleyerek seç."
             )
         elif calib.band is None:
             text = (
