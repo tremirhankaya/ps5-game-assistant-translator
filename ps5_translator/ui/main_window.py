@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import settings
 from ..explain import explain
 from ..translation import Result, TranslationPipeline, available_engines
 
@@ -71,6 +73,7 @@ class MainWindow(QMainWindow):
         self._pool.setMaxThreadCount(1)
         self._engines = available_engines()
         self._pipeline: TranslationPipeline | None = None
+        self._translated_since_usage = 0
 
         self._build_ui()
         self._select_engine(0)
@@ -90,7 +93,13 @@ class MainWindow(QMainWindow):
             self.engine_box.addItem(engine.name)
         self.engine_box.currentIndexChanged.connect(self._select_engine)
         top.addWidget(self.engine_box)
+        settings_button = QPushButton("Ayarlar")
+        settings_button.clicked.connect(self._open_settings)
+        top.addWidget(settings_button)
         top.addStretch()
+        self.usage_label = QLabel("")
+        self.usage_label.setStyleSheet("color:#888;")
+        top.addWidget(self.usage_label)
         self.explain_toggle = QCheckBox("Açıklamaları göster")
         self.explain_toggle.setChecked(True)
         self.explain_toggle.toggled.connect(lambda on: self.log.setVisible(on))
@@ -170,6 +179,9 @@ class MainWindow(QMainWindow):
             self._pipeline = TranslationPipeline(engine)
         else:
             self._pipeline.set_engine(engine)
+        note = getattr(engine, "ready_note", None)
+        self.usage_label.setText("")
+        self._refresh_usage()
         if load_ms is not None:
             self._write_log(
                 f"{engine.name} hazır (yükleme {load_ms / 1000:.1f} sn).",
@@ -179,6 +191,50 @@ class MainWindow(QMainWindow):
             f"Motor değişti: {engine.name}",
             "Önceki çeviriler silindi, çünkü farklı motorların sonuçları karışmasın.",
         )
+        if note:
+            self._write_log(*note)
+
+    def _refresh_usage(self) -> None:
+        engine = self._pipeline.engine if self._pipeline else None
+        usage = getattr(engine, "usage", None)
+        if usage is None:
+            return
+        self._translated_since_usage = 0
+        job = _CallJob(usage)
+        job.signals.done.connect(self._show_usage)
+        self._start(job)
+
+    def _show_usage(self, outcome) -> None:
+        ok, value = outcome
+        if ok and value:
+            used, limit = value
+            self.usage_label.setText(f"DeepL kotası: {used:,} / {limit:,} karakter".replace(",", "."))
+
+    def _open_settings(self) -> None:
+        current = settings.get_deepl_key() or ""
+        key, ok = QInputDialog.getText(
+            self,
+            "DeepL anahtarı",
+            "deepl.com/pro-api adresinden aldığın ücretsiz API anahtarını yapıştır.\n"
+            "Boş bırakırsan kayıtlı anahtar silinir.",
+            QLineEdit.Password,
+            current,
+        )
+        if not ok:
+            return
+        try:
+            settings.set_deepl_key(key)
+        except Exception as exc:
+            self._write_log(f"Anahtar kaydedilemedi: {exc}")
+            return
+        self._write_log(
+            "DeepL anahtarı Windows Kimlik Bilgisi Yöneticisi'ne kaydedildi." if key.strip()
+            else "DeepL anahtarı silindi.",
+            "Anahtar proje klasöründe düz bir dosyada dursaydı yanlışlıkla GitHub'a gönderilebilirdi. "
+            "Windows'un kendi şifre kasasında saklamak daha güvenli.",
+        )
+        if self._engines[self.engine_box.currentIndex()].name == "DeepL":
+            self._select_engine(self.engine_box.currentIndex())
 
     def _start(self, job: QRunnable) -> None:
         job.setAutoDelete(False)
@@ -203,6 +259,10 @@ class MainWindow(QMainWindow):
             self._write_log(exp.what, exp.why)
         if result.skipped or result.error:
             return
+        if not result.from_cache:
+            self._translated_since_usage += 1
+            if self._translated_since_usage >= 20:
+                self._refresh_usage()
         self.subtitle.setText(result.translated)
         source_note = "kayıttan" if result.from_cache else f"{result.ms:.0f} ms"
         self.source.setText(f"{result.source}   ·   {source_note}")

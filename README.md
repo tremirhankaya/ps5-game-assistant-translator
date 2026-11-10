@@ -36,6 +36,16 @@ pip install -r requirements-dev.txt
 python -m ps5_translator
 ```
 
+## Çeviri motoru: DeepL (varsayılan)
+
+1. [deepl.com/pro-api](https://www.deepl.com/pro-api) adresinden ücretsiz **DeepL API Free** hesabı aç (ayda 500.000 karakter).
+2. Hesap sayfasından API anahtarını kopyala (sonu `:fx` ile biter).
+3. Uygulamada **Ayarlar** düğmesine bas ve anahtarı yapıştır.
+
+Anahtar Windows Kimlik Bilgisi Yöneticisi'nde saklanır, proje klasörüne yazılmaz. İstersen `DEEPL_API_KEY` ortam değişkeni de kullanılabilir.
+
+Her çeviride bir önceki replik DeepL'e bağlam olarak gönderilir; bu, "he/it" gibi belirsiz kelimelerin doğru çevrilmesine yardım eder ve kotadan düşmez.
+
 ## Yerel çeviri modelleri (opsiyonel)
 
 İnternet ve hesap gerektirmeden çeviri için [Ollama](https://ollama.com) kur ve modelleri bir kez indir:
