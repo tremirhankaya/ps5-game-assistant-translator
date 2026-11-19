@@ -9,6 +9,7 @@ Bottom: exactly what OCR will read.
 from __future__ import annotations
 
 import os
+import threading
 import time
 from typing import Callable
 
@@ -42,9 +43,16 @@ GREEN = (80, 220, 80)
 
 
 class CameraThread(QThread):
-    """Reads frames from the webcam on its own thread."""
+    """Reads frames from the webcam on its own thread.
 
-    frame_ready = Signal(object)
+    Only the newest frame is kept. The thread does not send frames through Qt's
+    signal queue: if the window was busy for a moment, every queued 1080p frame
+    (~6 MB) stayed in memory and RAM use grew by gigabytes. Now it only signals
+    "a new frame is ready" (at most one pending signal) and the window takes the
+    latest frame when it gets to it; older frames are simply dropped.
+    """
+
+    frame_ready = Signal()
     opened = Signal(int, int, str)
     failed = Signal(str)
 
@@ -54,6 +62,9 @@ class CameraThread(QThread):
         self.width = width
         self.height = height
         self.preview_interval = 1 / preview_fps
+        self._frame_lock = threading.Lock()
+        self._latest: np.ndarray | None = None
+        self._signal_pending = False
 
     def _open(self):
         # Windows has several camera systems; not every webcam or OpenCV version
@@ -92,8 +103,25 @@ class CameraThread(QThread):
             now = time.monotonic()
             if now - last >= self.preview_interval:
                 last = now
-                self.frame_ready.emit(frame)
+                self.publish(frame)
         cap.release()
+        with self._frame_lock:
+            self._latest = None
+
+    def publish(self, frame: np.ndarray) -> None:
+        """Replace the stored frame; signal only if the window has not been told yet."""
+        with self._frame_lock:
+            self._latest = frame
+            already_told = self._signal_pending
+            self._signal_pending = True
+        if not already_told:
+            self.frame_ready.emit()
+
+    def take_frame(self) -> np.ndarray | None:
+        with self._frame_lock:
+            frame = self._latest
+            self._signal_pending = False
+            return frame
 
     def stop(self) -> None:
         """Ask the thread to finish. Does not block: some (virtual) cameras take
@@ -281,7 +309,7 @@ class CameraWindow(QWidget):
             "ekler. Görüntü yanlışsa üstten başka numara seç.",
         )
         self._thread = CameraThread(index)
-        self._thread.frame_ready.connect(self._on_frame)
+        self._thread.frame_ready.connect(self._pull_frame)
         self._thread.opened.connect(self._on_opened)
         self._thread.failed.connect(
             lambda msg: self._log(msg, "Kamera başka bir programda açık olabilir ya da bu numarada kamera yoktur.")
@@ -313,6 +341,14 @@ class CameraWindow(QWidget):
             "Çözünürlük önemli: altyazı harfleri görüntüde ne kadar çok pikselden oluşursa OCR o kadar doğru okur. "
             "1920x1080 istedik; kamera desteklemiyorsa daha düşüğünü verir.",
         )
+
+    def _pull_frame(self) -> None:
+        thread = self._thread
+        if thread is None:
+            return
+        frame = thread.take_frame()
+        if frame is not None:
+            self._on_frame(frame)
 
     def _on_frame(self, frame: np.ndarray) -> None:
         self.latest_frame = frame
