@@ -152,6 +152,7 @@ class MainWindow(QMainWindow):
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
+        self.log.setMaximumBlockCount(3000)  # keep the newest lines; the log must not grow forever
         self.log.setFont(QFont("Consolas", 10))
         self.log.setPlaceholderText("Uygulamanın her adımda ne yaptığı ve neden yaptığı burada görünür.")
         layout.addWidget(self.log, stretch=1)
